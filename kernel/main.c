@@ -61,6 +61,8 @@ void kmain(void) {
 
     fb_clear(0x00202020);
 
+    fb_draw_string(40, 40, "Obsidia Kernel Ready!", 0x00FFFFFF, 0x00202020);
+
     fb_fill_rect(100, 100, 300, 200, 0x00FF0000);
     fb_fill_rect(500, 100, 300, 200, 0x0000FF00);
     fb_fill_rect(900, 100, 300, 200, 0x000000FF);
