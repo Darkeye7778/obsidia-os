@@ -10,7 +10,8 @@ ISO = obsidia.iso
 OBJS = \
 	main.o \
 	framebuffer.o \
-	font.o
+	font.o \
+        console.o
 
 all: iso
 
@@ -22,6 +23,9 @@ framebuffer.o: kernel/drivers/framebuffer.c
 
 font.o: kernel/drivers/font.c
 	$(CC) $(CFLAGS) -c kernel/drivers/font.c -o font.o
+
+console.o: kernel/console/console.c
+	$(CC) $(CFLAGS) -c kernel/console/console.c -o console.o
 
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)

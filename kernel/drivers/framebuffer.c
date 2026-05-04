@@ -38,10 +38,10 @@ void fb_draw_char(uint64_t x, uint64_t y, char c, uint32_t fg, uint32_t bg) {
     if ((unsigned char)c >= 128) c = '?';
 
     for (uint64_t row = 0; row < FONT_HEIGHT; row++) {
-        uint8_t bits = font8x8_basic[(int)c][row];
+        uint8_t bits = (uint8_t)font8x8_basic[(unsigned char)c][row];
 
         for (uint64_t col = 0; col < FONT_WIDTH; col++) {
-            uint32_t color = (bits & (1 << (7 - col))) ? fg : bg;
+            uint32_t color = (bits & (1 << col)) ? fg : bg;
             fb_put_pixel(x + col, y + row, color);
         }
     }

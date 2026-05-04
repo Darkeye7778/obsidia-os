@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include "limine.h"
 #include "drivers/framebuffer.h"
+#include "console/console.h"
 
 // ===== LIMINE REQUESTS =====
 
@@ -61,7 +62,13 @@ void kmain(void) {
 
     fb_clear(0x00202020);
 
-    fb_draw_string(40, 40, "Obsidia Kernel Ready!", 0x00FFFFFF, 0x00202020);
+    uint64_t width = fb->width;
+    uint64_t height = fb->height;
+
+    console_init(width, height);
+
+    console_print("Obsidia Console Online\n");
+    console_print("This is real now.\n");
 
     fb_fill_rect(100, 100, 300, 200, 0x00FF0000);
     fb_fill_rect(500, 100, 300, 200, 0x0000FF00);
