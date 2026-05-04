@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include "limine.h"
+#include "drivers/framebuffer.h"
 
 // ===== LIMINE REQUESTS =====
 
@@ -55,24 +56,14 @@ void kmain(void) {
     struct limine_framebuffer *fb =
         framebuffer_request.response->framebuffers[0];
 
-    uint32_t *pixels = fb->address;
-    uint64_t width = fb->width;
-    uint64_t height = fb->height;
-    uint64_t pitch = fb->pitch / 4;
-
     // 🎨 Draw color bars
-    for (uint64_t y = 0; y < height; y++) {
-        for (uint64_t x = 0; x < width; x++) {
-            if (x < width / 3) {
-                pixels[y * pitch + x] = 0x00FF0000; // red
-            } else if (x < (width * 2) / 3) {
-                pixels[y * pitch + x] = 0x0000FF00; // green
-            } else {
-                pixels[y * pitch + x] = 0x000000FF; // blue
-            }
-        }
-    }
+    fb_init((uint32_t*)fb->address, fb->width, fb->height, fb->pitch);
 
+    fb_clear(0x00202020);
+
+    fb_fill_rect(100, 100, 300, 200, 0x00FF0000);
+    fb_fill_rect(500, 100, 300, 200, 0x0000FF00);
+    fb_fill_rect(900, 100, 300, 200, 0x000000FF);
     serial_write("Framebuffer OK\n");
 
     while (1) {
