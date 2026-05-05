@@ -24,11 +24,19 @@ git clone https://github.com/Darkeye7778/obsidia-os.git
 cd obsidia-os
 ```
 
-### 2. Clone Limine bootloader
+### 2. Clone Limine bootloader (REQUIRED)
 
 ```bash
 git clone https://github.com/limine-bootloader/limine.git --branch v7.x-binary --depth=1
 ```
+
+Verify:
+
+```bash
+ls limine
+```
+
+You should see `limine.exe`.
 
 ---
 
@@ -48,6 +56,7 @@ make run
 ```bash
 git clone https://github.com/Darkeye7778/obsidia-os.git
 cd obsidia-os
+git clone https://github.com/limine-bootloader/limine.git --branch v7.x-binary --depth=1
 ```
 
 Install dependencies (see Requirements).
@@ -56,12 +65,14 @@ Install dependencies (see Requirements).
 
 ### Normal workflow
 
-#### Before working:
+Before working:
+
 ```bash
 git pull
 ```
 
-#### After making changes:
+After making changes:
+
 ```bash
 git add .
 git commit -m "your message"
@@ -72,29 +83,41 @@ git push
 
 ### Switching machines
 
-```
-Machine A → push
-Machine B → pull
-Machine B → push
-Machine A → pull
-```
+Machine A → push  
+Machine B → pull  
+Machine B → push  
+Machine A → pull  
 
-**Always run `git pull` before editing to avoid conflicts.**
+Always run `git pull` before editing to avoid conflicts.
 
 ---
 
 ## Current Progress
 
-- Framebuffer rendering  
-- Text rendering (8x8 font)  
-- Console with cursor + editing  
-- Keyboard input (modifiers, arrows)  
-- Line editing (in progress)  
+- Framebuffer rendering
+- Text rendering (8x8 font)
+- Console with cursor + editing
+- Keyboard input (modifiers, arrows)
+- Line editing (in progress)
 
 ---
 
 ## Notes
 
-- Runs in QEMU  
-- Uses Limine bootloader  
+- Runs in QEMU
+- Uses Limine bootloader
 - Freestanding kernel (no libc)
+
+---
+
+This version is:
+
+- clean  
+- copy/paste ready  
+- works across multiple machines without path issues  
+
+---
+
+## Future Improvement
+
+👉 Automatically download Limine in the Makefile (one-command setup)
