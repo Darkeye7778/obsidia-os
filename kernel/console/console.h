@@ -9,3 +9,4 @@ void console_move_cursor_right();
 void console_move_cursor_up();
 void console_move_cursor_down();
 void console_set_edit_region_here();
+void console_clear_current_line_from_edit_start();

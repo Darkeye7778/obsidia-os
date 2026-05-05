@@ -206,3 +206,20 @@ void console_set_edit_region_here(void) {
     edit_max_x = cursor_x;
     edit_max_y = cursor_y;
 }
+
+void console_clear_current_line_from_edit_start(void) {
+    console_clear_cursor();
+
+    cursor_x = edit_min_x;
+    cursor_y = edit_min_y;
+
+    for (uint64_t x = edit_min_x; x < max_x; x++) {
+        console_set_char(x, edit_min_y, ' ');
+        console_draw_cell(x, edit_min_y, 0x00FFFFFF, 0x00202020);
+    }
+
+    edit_max_x = edit_min_x;
+    edit_max_y = edit_min_y;
+
+    console_draw_cursor();
+}

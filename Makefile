@@ -12,7 +12,8 @@ OBJS = \
 	framebuffer.o \
 	font.o \
         console.o \
-        keyboard.o
+        keyboard.o \
+	line_editor.o
 
 all: iso
 
@@ -30,6 +31,9 @@ console.o: kernel/console/console.c
 
 keyboard.o: kernel/drivers/keyboard.c
 	$(CC) $(CFLAGS) -c kernel/drivers/keyboard.c -o keyboard.o
+
+line_editor.o: kernel/input/line_editor.c
+	$(CC) $(CFLAGS) -c kernel/input/line_editor.c -o line_editor.o
 
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)

@@ -3,6 +3,7 @@
 #include "console/console.h"
 #include "drivers/keyboard.h"
 #include "limine.h"
+#include "input/line_editor.h"
 
 // ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
@@ -61,33 +62,28 @@ void kmain(void) {
 
     console_print("Type something:\n");
 
+    console_print("> ");
+    console_set_edit_region_here();
+    line_editor_init();
+
     console_set_edit_region_here();
 
     // ===== MAIN INPUT LOOP =====
     while (1) {
-    int key = keyboard_getkey();
+        int key = keyboard_getkey();
 
-    if (key == KEY_ARROW_LEFT) {
-        console_move_cursor_left();
-    } else if (key == KEY_ARROW_RIGHT) {
-        console_move_cursor_right();
-    } else if (key == KEY_ARROW_UP) {
-        console_move_cursor_up();
-    } else if (key == KEY_ARROW_DOWN) {
-        console_move_cursor_down();
-    } else if (key == KEY_CTRL_A) {
-        console_print("[CTRL+A]");
-    } else if (key == KEY_CTRL_C) {
-        console_print("[CTRL+C]");
-    } else if (key == KEY_CTRL_L) {
-        fb_clear(0x00202020);
-        console_init(fb->width, fb->height);
-        console_print("Obsidia Console Online\n");
-        console_print("Screen cleared.\n");
-        console_print("Type something:\n");
-        console_set_edit_region_here();
-    } else {
-        console_putc((char)key);
+        if (key == KEY_CTRL_L) {
+            fb_clear(0x00202020);
+            console_init(fb->width, fb->height);
+            console_print("Obsidia Console Online\n");
+            console_print("Screen cleared.\n");
+            console_print("> ");
+            console_set_edit_region_here();
+            line_editor_init();
+            continue;
+        }
+
+        line_editor_handle_key(key);
     }
 }
-}
+
