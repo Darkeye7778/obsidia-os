@@ -65,7 +65,7 @@ void kmain(void) {
 
     // ===== MAIN INPUT LOOP =====
     while (1) {
-        int key = keyboard_getkey();
+    int key = keyboard_getkey();
 
     if (key == KEY_ARROW_LEFT) {
         console_move_cursor_left();
@@ -75,8 +75,19 @@ void kmain(void) {
         console_move_cursor_up();
     } else if (key == KEY_ARROW_DOWN) {
         console_move_cursor_down();
+    } else if (key == KEY_CTRL_A) {
+        console_print("[CTRL+A]");
+    } else if (key == KEY_CTRL_C) {
+        console_print("[CTRL+C]");
+    } else if (key == KEY_CTRL_L) {
+        fb_clear(0x00202020);
+        console_init(fb->width, fb->height);
+        console_print("Obsidia Console Online\n");
+        console_print("Screen cleared.\n");
+        console_print("Type something:\n");
+        console_set_edit_region_here();
     } else {
         console_putc((char)key);
-}
     }
+}
 }
