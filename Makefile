@@ -7,15 +7,21 @@ LDFLAGS = -nostdlib -z max-page-size=0x1000 -T linker.ld
 KERNEL = kernel.elf
 ISO = obsidia.iso
 
+LIMINE_DIR = limine
+LIMINE_BIN = $(LIMINE_DIR)/limine.exe
+
 OBJS = \
 	main.o \
 	framebuffer.o \
 	font.o \
-        console.o \
-        keyboard.o \
+	console.o \
+	keyboard.o \
 	line_editor.o
 
 all: iso
+
+$(LIMINE_DIR):
+	git clone https://github.com/limine-bootloader/limine.git --branch v7.x-binary --depth=1 $(LIMINE_DIR)
 
 main.o: kernel/main.c
 	$(CC) $(CFLAGS) -c kernel/main.c -o main.o
@@ -38,7 +44,7 @@ line_editor.o: kernel/input/line_editor.c
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)
 
-iso: $(KERNEL)
+iso: $(LIMINE_DIR) $(KERNEL)
 	cp $(KERNEL) iso/boot/kernel.elf
 	xorriso -as mkisofs \
 		-b boot/limine/limine-bios-cd.bin \
@@ -49,7 +55,7 @@ iso: $(KERNEL)
 		-efi-boot-part --efi-boot-image \
 		-o $(ISO) \
 		iso
-	~/limine/limine.exe bios-install $(ISO)
+	$(LIMINE_BIN) bios-install $(ISO)
 
 run: iso
 	qemu-system-x86_64 -cdrom $(ISO) -serial stdio
