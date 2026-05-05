@@ -4,6 +4,7 @@
 #include "drivers/keyboard.h"
 #include "limine.h"
 #include "input/line_editor.h"
+#include "memory/memory.h"
 
 // ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
@@ -45,6 +46,12 @@ void kmain(void) {
         while (1) __asm__ volatile ("hlt");
     }
 
+    __attribute__((used, section(".limine_requests")))
+    static volatile struct limine_memmap_request memmap_request = {
+        .id = LIMINE_MEMMAP_REQUEST,
+        .revision = 0
+    };
+
     struct limine_framebuffer *fb =
         framebuffer_request.response->framebuffers[0];
 
@@ -58,6 +65,10 @@ void kmain(void) {
     console_init(fb->width, fb->height);
 
     console_print("Obsidia Console Online\n");
+
+    memory_init(memmap_request.response);
+    memory_print_map();
+
     console_print("This is real now.\n\n");
 
     console_print("Type something:\n");
