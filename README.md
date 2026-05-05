@@ -17,14 +17,42 @@ sudo apt install -y build-essential nasm xorriso mtools qemu-system-x86 git curl
 
 ## Setup
 
-### 1. Clone the repository
+### 1. Setup GitHub SSH (one-time per machine)
+
+Generate key:
 
 ```bash
-git clone https://github.com/Darkeye7778/obsidia-os.git
+ssh-keygen -t ed25519 -C "your_email@example.com"
+```
+
+Get your public key:
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+Add it to:
+
+GitHub → Settings → SSH and GPG keys → New SSH key
+
+Test it:
+
+```bash
+ssh -T git@github.com
+```
+
+---
+
+### 2. Clone the repository (SSH)
+
+```bash
+git clone git@github.com:Darkeye7778/obsidia-os.git
 cd obsidia-os
 ```
 
-### 2. Clone Limine bootloader (REQUIRED)
+---
+
+### 3. Clone Limine bootloader (REQUIRED)
 
 ```bash
 git clone https://github.com/limine-bootloader/limine.git --branch v7.x-binary --depth=1
@@ -54,8 +82,9 @@ make run
 ### First time on a new machine
 
 ```bash
-git clone https://github.com/Darkeye7778/obsidia-os.git
+git clone git@github.com:Darkeye7778/obsidia-os.git
 cd obsidia-os
+
 git clone https://github.com/limine-bootloader/limine.git --branch v7.x-binary --depth=1
 ```
 
@@ -88,7 +117,7 @@ Machine B → pull
 Machine B → push  
 Machine A → pull  
 
-Always run `git pull` before editing to avoid conflicts.
+Always run `git pull` before editing.
 
 ---
 
@@ -110,6 +139,8 @@ Always run `git pull` before editing to avoid conflicts.
 
 ---
 
-## Future Improvement
+## Future Improvements
 
-👉 Automatically download Limine in the Makefile (one-command setup)
+- Auto-download Limine in Makefile
+- Command system / shell
+- Scrolling + buffer system
