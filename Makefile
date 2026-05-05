@@ -11,7 +11,8 @@ OBJS = \
 	main.o \
 	framebuffer.o \
 	font.o \
-        console.o
+        console.o \
+        keyboard.o
 
 all: iso
 
@@ -26,6 +27,9 @@ font.o: kernel/drivers/font.c
 
 console.o: kernel/console/console.c
 	$(CC) $(CFLAGS) -c kernel/console/console.c -o console.o
+
+keyboard.o: kernel/drivers/keyboard.c
+	$(CC) $(CFLAGS) -c kernel/drivers/keyboard.c -o keyboard.o
 
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)

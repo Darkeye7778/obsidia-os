@@ -1,29 +1,19 @@
 #include <stdint.h>
-#include "limine.h"
 #include "drivers/framebuffer.h"
 #include "console/console.h"
+#include "drivers/keyboard.h"
+#include "limine.h"
 
-// ===== LIMINE REQUESTS =====
-
-__attribute__((used, section(".limine_requests")))
-static volatile LIMINE_BASE_REVISION(3);
-
+// ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
 static volatile struct limine_framebuffer_request framebuffer_request = {
     .id = LIMINE_FRAMEBUFFER_REQUEST,
     .revision = 0
 };
 
-__attribute__((used, section(".limine_requests_start")))
-static volatile LIMINE_REQUESTS_START_MARKER;
-
-__attribute__((used, section(".limine_requests_end")))
-static volatile LIMINE_REQUESTS_END_MARKER;
-
-// ===== SERIAL (for debug) =====
-
-static inline void outb(uint16_t port, uint8_t value) {
-    __asm__ volatile ("outb %0, %1" : : "a"(value), "Nd"(port));
+// ===== SERIAL (optional debug, you already had this) =====
+static inline void outb(uint16_t port, uint8_t val) {
+    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
 }
 
 static void serial_init(void) {
@@ -43,11 +33,11 @@ static void serial_write(const char *str) {
 }
 
 // ===== KERNEL ENTRY =====
-
 void kmain(void) {
     serial_init();
-    serial_write("Starting framebuffer...\n");
+    serial_write("Starting kernel...\n");
 
+    // ===== FRAMEBUFFER CHECK =====
     if (!framebuffer_request.response ||
         framebuffer_request.response->framebuffer_count < 1) {
         serial_write("NO FRAMEBUFFER\n");
@@ -57,25 +47,36 @@ void kmain(void) {
     struct limine_framebuffer *fb =
         framebuffer_request.response->framebuffers[0];
 
-    // 🎨 Draw color bars
+    // ===== INIT FRAMEBUFFER =====
     fb_init((uint32_t*)fb->address, fb->width, fb->height, fb->pitch);
 
+    // ===== CLEAR SCREEN =====
     fb_clear(0x00202020);
 
-    uint64_t width = fb->width;
-    uint64_t height = fb->height;
-
-    console_init(width, height);
+    // ===== INIT CONSOLE =====
+    console_init(fb->width, fb->height);
 
     console_print("Obsidia Console Online\n");
-    console_print("This is real now.\n");
+    console_print("This is real now.\n\n");
 
-    fb_fill_rect(100, 100, 300, 200, 0x00FF0000);
-    fb_fill_rect(500, 100, 300, 200, 0x0000FF00);
-    fb_fill_rect(900, 100, 300, 200, 0x000000FF);
-    serial_write("Framebuffer OK\n");
+    console_print("Type something:\n");
 
+    console_set_edit_region_here();
+
+    // ===== MAIN INPUT LOOP =====
     while (1) {
-        __asm__ volatile ("hlt");
+        int key = keyboard_getkey();
+
+    if (key == KEY_ARROW_LEFT) {
+        console_move_cursor_left();
+    } else if (key == KEY_ARROW_RIGHT) {
+        console_move_cursor_right();
+    } else if (key == KEY_ARROW_UP) {
+        console_move_cursor_up();
+    } else if (key == KEY_ARROW_DOWN) {
+        console_move_cursor_down();
+    } else {
+        console_putc((char)key);
+}
     }
 }
