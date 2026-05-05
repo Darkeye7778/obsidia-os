@@ -129,8 +129,29 @@ Always run `git pull` before editing.
 
 ---
 
-## Future Improvements
+## List Until Self Editable
 
-- Auto-download Limine in Makefile
-- Command system / shell
-- Scrolling + buffer system
+1. Add Makefile build system - Done
+2. Add framebuffer text rendering - Done
+3. Add on-screen console - Done
+4. Add keyboard input - Done
+5. Add memory manager - Starting
+   <ol type="A">
+     <li>Request Limine memory map</li>
+     <li>Print memory map regions</li>
+     <li>Calculate total usable memory</li>
+     <li>Build physical memory manager structs</li>
+     <li>Mark usable pages as free</li>
+     <li>Reserve kernel / bootloader / framebuffer memory</li>
+     <li>Implement pmm_alloc_page()</li>
+     <li>Implement pmm_free_page()</li>
+     <li>Add meminfo shell command</li>
+     <li>Add basic heap allocator groundwork</li>
+   </ol>
+6. Add initramfs support - Not Yet Started
+7. Add simple shell - Started Early
+8. Add filesystem read support - Not Yet Started
+9. Add filesystem write support - Not Yet Started
+10. Add text editor - Not Yet Started
+11. Add user program support - Not Yet Started
+12. Add compiler toolchain groundwork - Not Yet Started 
