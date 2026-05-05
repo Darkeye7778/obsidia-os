@@ -223,3 +223,20 @@ void console_clear_current_line_from_edit_start(void) {
 
     console_draw_cursor();
 }
+
+void console_reset(void) {
+    cursor_x = 0;
+    cursor_y = 0;
+    edit_min_x = 0;
+    edit_min_y = 0;
+    edit_max_x = 0;
+    edit_max_y = 0;
+
+    for (uint64_t y = 0; y < CONSOLE_MAX_ROWS; y++) {
+        for (uint64_t x = 0; x < CONSOLE_MAX_COLS; x++) {
+            screen_chars[y][x] = ' ';
+        }
+    }
+
+    console_draw_cursor();
+}

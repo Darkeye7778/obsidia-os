@@ -1,6 +1,7 @@
 #include "line_editor.h"
 #include "../console/console.h"
 #include "../drivers/keyboard.h"
+#include "../shell/shell.h"
 
 #define LINE_MAX 256
 
@@ -62,9 +63,7 @@ void line_editor_handle_key(int key) {
 
         line[len] = 0;
 
-        console_print("You entered: ");
-        console_print(line);
-        console_putc('\n');
+        shell_execute(line);
 
         console_print("> ");
         console_set_edit_region_here();
