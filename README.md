@@ -110,14 +110,6 @@ Always run `git pull` before editing to avoid conflicts.
 
 ---
 
-This version is:
-
-- clean  
-- copy/paste ready  
-- works across multiple machines without path issues  
-
----
-
 ## Future Improvement
 
 👉 Automatically download Limine in the Makefile (one-command setup)
