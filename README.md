@@ -52,23 +52,13 @@ cd obsidia-os
 
 ---
 
-### 3. Clone Limine bootloader (REQUIRED)
+### 3. Limine bootloader
 
-```bash
-git clone https://github.com/limine-bootloader/limine.git --branch v7.x-binary --depth=1
-```
+Limine is automatically downloaded by the Makefile if the `limine/` folder is missing.
 
-Verify:
+No manual Limine setup is required.
 
-```bash
-ls limine
-```
-
-You should see `limine.exe`.
-
----
-
-## Build & Run
+To build and run:
 
 ```bash
 make clean
