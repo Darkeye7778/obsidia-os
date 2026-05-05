@@ -1,6 +1,7 @@
 #include "shell.h"
 #include "../console/console.h"
 #include "../drivers/framebuffer.h"
+#include "../memory/memory.h"
 
 static int strcmp(const char* a, const char* b) {
     while (*a && (*a == *b)) {
@@ -56,7 +57,22 @@ void shell_execute(const char* input) {
     }
 
     if (strcmp(input, "meminfo") == 0) {
-        console_print("Memory manager not initialized yet.\n");
+        console_print("Total usable memory: ");
+        memory_print_dec(memory_get_total_usable() / 1024 / 1024);
+        console_print(" MiB\n");
+
+        console_print("Total pages: ");
+        memory_print_dec(memory_get_total_pages());
+        console_print("\n");
+
+        console_print("Usable pages: ");
+        memory_print_dec(memory_get_usable_pages());
+        console_print("\n");
+
+        console_print("Free pages: ");
+        memory_print_dec(memory_get_free_pages());
+        console_print("\n");
+
         return;
     }
 

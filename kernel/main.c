@@ -69,6 +69,22 @@ void kmain(void) {
     memory_init(memmap_request.response);
     memory_print_map();
 
+    void* test_page = pmm_alloc_page();
+
+    console_print("Allocated page at: ");
+    memory_print_hex64((uint64_t)test_page);
+    console_print("\n");
+
+    pmm_free_page(test_page);
+
+    console_print("Freed that page.\n");
+
+    void* test_page2 = pmm_alloc_page();
+
+    console_print("Allocated again at: ");
+    memory_print_hex64((uint64_t)test_page2);
+    console_print("\n");
+
     console_print("This is real now.\n\n");
 
     console_print("Type something:\n");
