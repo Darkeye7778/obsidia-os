@@ -18,7 +18,8 @@ OBJS = \
 	keyboard.o \
 	line_editor.o \
         shell.o \
-	memory.o
+	memory.o \
+	heap.o
 
 all: iso
 
@@ -48,6 +49,9 @@ shell.o: kernel/shell/shell.c
 
 memory.o: kernel/memory/memory.c
 	$(CC) $(CFLAGS) -c kernel/memory/memory.c -o memory.o
+
+heap.o: kernel/memory/heap.c
+	$(CC) $(CFLAGS) -c kernel/memory/heap.c -o heap.o
 
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)

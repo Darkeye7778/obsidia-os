@@ -5,6 +5,7 @@
 #include "limine.h"
 #include "input/line_editor.h"
 #include "memory/memory.h"
+#include "memory/heap.h"
 
 // ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
@@ -67,6 +68,8 @@ void kmain(void) {
     console_print("Obsidia Console Online\n");
 
     memory_init(memmap_request.response);
+    heap_init();
+/*
     memory_print_map();
 
     void* test_page = pmm_alloc_page();
@@ -85,6 +88,11 @@ void kmain(void) {
     memory_print_hex64((uint64_t)test_page2);
     console_print("\n");
 
+    void* heap_test = kmalloc(64);
+    console_print("kmalloc test: ");
+    memory_print_hex64((uint64_t)heap_test);
+    console_print("\n");
+*/
     console_print("This is real now.\n\n");
 
     console_print("Type something:\n");
