@@ -6,11 +6,18 @@
 #include "input/line_editor.h"
 #include "memory/memory.h"
 #include "memory/heap.h"
+#include <stddef.h>
 
 // ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
 static volatile struct limine_framebuffer_request framebuffer_request = {
     .id = LIMINE_FRAMEBUFFER_REQUEST,
+    .revision = 0
+};
+
+__attribute__((used, section(".limine_requests")))
+static volatile struct limine_module_request module_request = {
+    .id = LIMINE_MODULE_REQUEST,
     .revision = 0
 };
 
@@ -69,6 +76,20 @@ void kmain(void) {
 
     memory_init(memmap_request.response);
     heap_init();
+
+    if (module_request.response == NULL || module_request.response->module_count == 0) {
+        console_print("No initrd loaded.\n");
+    } else {
+        struct limine_file *initrd = module_request.response->modules[0];
+
+        console_print("Initrd loaded.\n");
+        console_print("Address: ");
+        memory_print_hex64((uint64_t)initrd->address);
+        console_print("\nSize: ");
+        memory_print_dec(initrd->size);
+        console_print(" bytes\n");
+    }
+
 /*
     memory_print_map();
 

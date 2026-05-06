@@ -10,6 +10,8 @@ ISO = obsidia.iso
 LIMINE_DIR = limine
 LIMINE_BIN = $(LIMINE_DIR)/limine.exe
 
+INITRD = initrd.tar
+
 OBJS = \
 	main.o \
 	framebuffer.o \
@@ -58,6 +60,7 @@ $(KERNEL): $(OBJS)
 
 iso: $(LIMINE_DIR) $(KERNEL)
 	cp $(KERNEL) iso/boot/kernel.elf
+	cp $(INITRD) iso/boot/
 	xorriso -as mkisofs \
 		-b boot/limine/limine-bios-cd.bin \
 		-no-emul-boot \
