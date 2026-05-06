@@ -148,7 +148,7 @@ Always run `git pull` before editing.
      <li>Add meminfo shell command</li>
      <li>Add basic heap allocator groundwork</li>
    </ol>
-6. Add initramfs support - In Progress
+6. Add initramfs support - Done
 7. Add simple shell - Started Early
 8. Add filesystem read support - TBD
 9. Add filesystem write support - TBD
