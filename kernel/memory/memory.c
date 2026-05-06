@@ -121,7 +121,7 @@ void memory_init(struct limine_memmap_response* memmap) {
         }
     }
 
-    pmm_bitmap_size = (total_pages + 7) / 8;
+    pmm_bitmap_size = (pmm_max_page + 7) / 8;
 
     for (uint64_t i = 0; i < g_memmap->entry_count; i++) {
         struct limine_memmap_entry* entry = g_memmap->entries[i];
@@ -154,7 +154,7 @@ void memory_init(struct limine_memmap_response* memmap) {
         uint64_t start_page = entry->base / PAGE_SIZE;
         uint64_t page_count = entry->length / PAGE_SIZE;
 
-        for (uint64_t p = 0; p < pmm_max_page; p++) {
+        for (uint64_t p = 0; p < page_count; p++) {
             bitmap_clear(start_page + p);
         }
     }
