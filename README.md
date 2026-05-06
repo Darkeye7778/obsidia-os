@@ -135,7 +135,7 @@ Always run `git pull` before editing.
 2. Add framebuffer text rendering - Done
 3. Add on-screen console - Done
 4. Add keyboard input - Done
-5. Add memory manager - Starting
+5. Add memory manager - Done
    <ol type="A">
      <li>Request Limine memory map</li>
      <li>Print memory map regions</li>
@@ -148,10 +148,10 @@ Always run `git pull` before editing.
      <li>Add meminfo shell command</li>
      <li>Add basic heap allocator groundwork</li>
    </ol>
-6. Add initramfs support - Not Yet Started
+6. Add initramfs support - In Progress
 7. Add simple shell - Started Early
-8. Add filesystem read support - Not Yet Started
-9. Add filesystem write support - Not Yet Started
-10. Add text editor - Not Yet Started
-11. Add user program support - Not Yet Started
-12. Add compiler toolchain groundwork - Not Yet Started 
+8. Add filesystem read support - TBD
+9. Add filesystem write support - TBD
+10. Add text editor - TBD
+11. Add user program support - TBD
+12. Add compiler toolchain groundwork - TBD 
