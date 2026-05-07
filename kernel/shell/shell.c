@@ -39,6 +39,7 @@ static void cmd_help(const char* args) {
     console_print("  about    - show OS info\n");
     console_print("  meminfo  - memory status\n");
     console_print("  initrd   - show initrd info\n");
+    console_print("  ls       - list initrd files\n");
 }
 
 static void cmd_clear(const char* args) {
@@ -93,7 +94,8 @@ void cmd_initrd(const char *args) {
 }
 
 void cmd_ls(const char *args) {
-    console_print("ls not implemented yet\n");
+    (void)args;
+    initrd_list_files();
 }
 
 void cmd_cat(const char *args) {
@@ -108,6 +110,7 @@ static command_t commands[] = {
     {"about",   "show OS info",         cmd_about},
     {"meminfo", "memory status",        cmd_meminfo},
     {"initrd", "show initrd info",      cmd_initrd},
+    {"ls", "list initrd files",		cmd_ls},
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);
