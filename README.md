@@ -149,8 +149,8 @@ Always run `git pull` before editing.
      <li>Add basic heap allocator groundwork</li>
    </ol>
 6. Add initramfs support - Done
-7. Add simple shell - Started Early
-8. Add filesystem read support - TBD
+7. Add simple shell - Updated
+8. Add filesystem read support - Done
 9. Add filesystem write support - TBD
 10. Add text editor - TBD
 11. Add user program support - TBD
