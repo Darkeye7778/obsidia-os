@@ -3,6 +3,7 @@
 #include "../drivers/framebuffer.h"
 #include "../memory/memory.h"
 #include <stddef.h>
+#include "../initrd/initrd.h"
 
 typedef void (*command_func_t)(const char *args);
 
@@ -37,6 +38,7 @@ static void cmd_help(const char* args) {
     console_print("  version  - show kernel version\n");
     console_print("  about    - show OS info\n");
     console_print("  meminfo  - memory status\n");
+    console_print("  initrd   - show initrd info\n");
 }
 
 static void cmd_clear(const char* args) {
@@ -86,7 +88,8 @@ static void cmd_meminfo(const char* args) {
 }
 
 void cmd_initrd(const char *args) {
-    console_print("Initrd command coming soon\n");
+    (void)args;
+    initrd_print_info();
 }
 
 void cmd_ls(const char *args) {
@@ -104,6 +107,7 @@ static command_t commands[] = {
     {"version", "show kernel version",  cmd_version},
     {"about",   "show OS info",         cmd_about},
     {"meminfo", "memory status",        cmd_meminfo},
+    {"initrd", "show initrd info",      cmd_initrd},
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);

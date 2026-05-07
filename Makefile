@@ -21,7 +21,8 @@ OBJS = \
 	line_editor.o \
         shell.o \
 	memory.o \
-	heap.o
+	heap.o \
+	initrd.o
 
 all: iso
 
@@ -54,6 +55,9 @@ memory.o: kernel/memory/memory.c
 
 heap.o: kernel/memory/heap.c
 	$(CC) $(CFLAGS) -c kernel/memory/heap.c -o heap.o
+
+initrd.o: kernel/initrd/initrd.c
+	$(CC) $(CFLAGS) -c kernel/initrd/initrd.c -o initrd.o
 
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)

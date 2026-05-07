@@ -7,6 +7,7 @@
 #include "memory/memory.h"
 #include "memory/heap.h"
 #include <stddef.h>
+#include "initrd/initrd.h"
 
 // ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
@@ -77,17 +78,10 @@ void kmain(void) {
     memory_init(memmap_request.response);
     heap_init();
 
-    if (module_request.response == NULL || module_request.response->module_count == 0) {
-        console_print("No initrd loaded.\n");
-    } else {
+    if (module_request.response != NULL && module_request.response->module_count > 0) {
         struct limine_file *initrd = module_request.response->modules[0];
 
-        console_print("Initrd loaded.\n");
-        console_print("Address: ");
-        memory_print_hex64((uint64_t)initrd->address);
-        console_print("\nSize: ");
-        memory_print_dec(initrd->size);
-        console_print(" bytes\n");
+        initrd_set((uint64_t)initrd->address, initrd->size);
     }
 
 /*
