@@ -81,3 +81,50 @@ void initrd_list_files(void) {
         ptr += 512 + offset;
     }
 }
+
+void initrd_cat_file(const char* filename) {
+    if (initrd_address == 0) {
+        console_print("No initrd loaded.\n");
+        return;
+    }
+
+    uint8_t* ptr = (uint8_t*)initrd_address;
+
+    while (1) {
+        struct tar_header* header = (struct tar_header*)ptr;
+
+        // End of archive
+        if (header->name[0] == '\0') {
+            break;
+        }
+
+        uint64_t size = octal_to_int(header->size, 11);
+
+        // Compare filenames
+        int match = 1;
+        for (int i = 0;; i++) {
+            if (filename[i] != header->name[i]) {
+                match = 0;
+                break;
+            }
+
+            if (filename[i] == '\0') {
+                break;
+            }
+        }
+
+        if (match) {
+            char* file_data = (char*)(ptr + 512);
+
+            console_print(file_data);
+            console_print("\n");
+
+            return;
+        }
+
+        uint64_t offset = ((size + 511) / 512) * 512;
+        ptr += 512 + offset;
+    }
+
+    console_print("File not found.\n");
+}
