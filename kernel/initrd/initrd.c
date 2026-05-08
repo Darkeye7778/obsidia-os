@@ -27,103 +27,140 @@ void initrd_print_info() {
     console_print(" bytes\n");
 }
 
-struct tar_header {
-    char name[100];
-    char mode[8];
-    char uid[8];
-    char gid[8];
-    char size[12];
-    char mtime[12];
-    char checksum[8];
-    char typeflag;
-};
 
-static uint64_t octal_to_int(const char* str, int size) {
-    uint64_t value = 0;
+#define OAR_TYPE_FILE 1
+#define OAR_TYPE_DIR  2
+#define PACKED __attribute__((packed))
 
-    for (int i = 0; i < size; i++) {
-	if (str[i] < '0' || str[i] > '7') {
-	    break;
-	}
+typedef struct __attribute__((packed)) {
+    char magic[4];
+    uint32_t version;
+    uint32_t file_count;
+    uint32_t flags;
+} oar_header_t;
 
-	value = (value * 8) + (str[i] - '0');
+typedef struct __attribute__((packed)) {
+    uint32_t name_len;
+    uint32_t type;
+    uint64_t size;
+    uint64_t flags;
+} oar_entry_t;
+
+static uint64_t align8(uint64_t value) {
+    return (value + 7) & ~7;
+}
+
+static int oar_valid(oar_header_t* header) {
+    return header->magic[0] == 'O' &&
+           header->magic[1] == 'A' &&
+           header->magic[2] == 'R' &&
+           header->magic[3] == '1' &&
+           header->version == 1;
+}
+
+static int str_equal_len(const char* a, const char* b, uint32_t b_len) {
+    uint32_t i = 0;
+
+    for (; i < b_len; i++) {
+        if (a[i] == '\0') {
+            return 0;
+        }
+
+        if (a[i] != b[i]) {
+            return 0;
+        }
     }
 
-    return value;
+    return a[i] == '\0';
 }
 
 void initrd_list_files(void) {
-    if (initrd_address == 0) {
+    if (initrd_address == 0 || initrd_size == 0) {
         console_print("No initrd loaded.\n");
         return;
     }
 
-    uint8_t* ptr = (uint8_t*)initrd_address;
+    oar_header_t* header = (oar_header_t*)initrd_address;
 
-    console_print("Initrd files:\n");
+    if (!oar_valid(header)) {
+        console_print("Invalid OAR archive.\n");
+        return;
+    }
 
-    while (1) {
-        struct tar_header* header = (struct tar_header*)ptr;
+    uint8_t* ptr = (uint8_t*)initrd_address + sizeof(oar_header_t);
 
-        // End of archive
-        if (header->name[0] == '\0') {
-            break;
-        }
+    console_print("OAR files:\n");
+
+    for (uint32_t i = 0; i < header->file_count; i++) {
+        oar_entry_t* entry = (oar_entry_t*)ptr;
+        ptr += sizeof(oar_entry_t);
+
+        char* name = (char*)ptr;
 
         console_print("  ");
-        console_print(header->name);
+
+        for (uint32_t j = 0; j < entry->name_len; j++) {
+            console_putc(name[j]);
+        }
+
+        if (entry->type == OAR_TYPE_DIR) {
+            console_print(" <dir>");
+        }
+
         console_print("\n");
 
-        uint64_t size = octal_to_int(header->size, 11);
+        ptr += entry->name_len;
+        ptr += entry->size;
 
-        // Move to next TAR entry
-        uint64_t offset = ((size + 511) / 512) * 512;
-        ptr += 512 + offset;
+        uint64_t offset = (uint64_t)(ptr - (uint8_t*)initrd_address);
+        ptr = (uint8_t*)initrd_address + align8(offset);
     }
 }
 
 void initrd_cat_file(const char* filename) {
-    if (initrd_address == 0) {
+    if (initrd_address == 0 || initrd_size == 0) {
         console_print("No initrd loaded.\n");
         return;
     }
 
-    uint8_t* ptr = (uint8_t*)initrd_address;
+    if (!filename || filename[0] == '\0') {
+        console_print("Usage: cat <file>\n");
+        return;
+    }
 
-    while (1) {
-        struct tar_header* header = (struct tar_header*)ptr;
+    oar_header_t* header = (oar_header_t*)initrd_address;
 
-        // End of archive
-        if (header->name[0] == '\0') {
-            break;
-        }
+    if (!oar_valid(header)) {
+        console_print("Invalid OAR archive.\n");
+        return;
+    }
 
-        uint64_t size = octal_to_int(header->size, 11);
+    uint8_t* ptr = (uint8_t*)initrd_address + sizeof(oar_header_t);
 
-        // Compare filenames
-        int match = 1;
-        for (int i = 0;; i++) {
-            if (filename[i] != header->name[i]) {
-                match = 0;
-                break;
+    for (uint32_t i = 0; i < header->file_count; i++) {
+        oar_entry_t* entry = (oar_entry_t*)ptr;
+        ptr += sizeof(oar_entry_t);
+
+        char* name = (char*)ptr;
+        ptr += entry->name_len;
+
+        uint8_t* data = ptr;
+
+        if (entry->type == OAR_TYPE_FILE &&
+            str_equal_len(filename, name, entry->name_len)) {
+
+            for (uint64_t j = 0; j < entry->size; j++) {
+                console_putc(((char*)data)[j]);
             }
 
-            if (filename[i] == '\0') {
-                break;
-            }
-        }
-
-        if (match) {
-            char* file_data = (char*)(ptr + 512);
-
-            console_print(file_data);
             console_print("\n");
-
             return;
         }
 
-        uint64_t offset = ((size + 511) / 512) * 512;
-        ptr += 512 + offset;
+        ptr += entry->size;
+
+        uint64_t offset = (uint64_t)(ptr - (uint8_t*)initrd_address);
+        ptr = (uint8_t*)initrd_address + align8(offset);
     }
 
     console_print("File not found.\n");
