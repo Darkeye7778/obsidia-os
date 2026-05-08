@@ -10,7 +10,7 @@ ISO = obsidia.iso
 LIMINE_DIR = limine
 LIMINE_BIN = $(LIMINE_DIR)/limine.exe
 
-INITRD = initrd.tar
+INITRD = initrd.oar
 
 OBJS = \
 	main.o \
