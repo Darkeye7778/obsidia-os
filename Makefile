@@ -19,7 +19,7 @@ OBJS = \
 	console.o \
 	keyboard.o \
 	line_editor.o \
-        shell.o \
+    shell.o \
 	memory.o \
 	heap.o \
 	initrd.o
