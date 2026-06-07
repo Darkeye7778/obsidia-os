@@ -67,7 +67,7 @@ Rejects: planned obsolescence, excessive lock-in, unremovable bloat, forced clou
 
 ## Phased Plan
 
-### Phase 0/1 — Userland Foundations (Current — Completed)
+### Phase 0/1 — Userland Foundations (v0.1.0-alpha — Completed)
 - Strengthened GDT/TSS (proper kernel + user ring-3 code/data segments + TSS rsp0)
 - Basic task structs + cooperative multitasking (create, yield, asm context_switch, schedule, 'tasks')
 - Userland loader + safe ring-3 launch from VFS flat binaries (map with USER PTEs, user stack, iretq, 'run <prog>')
@@ -76,17 +76,28 @@ Rejects: planned obsolescence, excessive lock-in, unremovable bloat, forced clou
 - Shell commands: tasks, run <program> (in addition to previous)
 - All prior base preserved; everything buildable incrementally
 
-**Next**: Polish (make shell a proper task, better cleanup, more robust unwind), move toward preemptive (timer tick + schedule), per-process paging when needed, C userland support, then build the GUI as a real userland process (desktop shell).
+**Next**: Polish + Phase 2 drivers/storage (done below), then preemptive, per-process, C userland, GUI as userland desktop shell.
 
-### Phase 1 (remaining) / Phase 2 — Userland & Multitasking
-- Preemptive scheduler driven by PIT
-- Per-process address spaces (separate CR3)
-- Flat/ELF loader improvements, user heaps
-- Full C userland toolchain + crt
-- Storage + real FS for persistent programs
-- User heap (brk/sbrk or mmap-style via syscall) + basic C runtime for user programs
-- Proper syscall ABI (Linux-like register passing or clean custom) + safe user-kernel copy
-- Event delivery (keyboard/mouse/timer events to focused "window" or subscribed tasks)
+### Phase 2 — Drivers & Real Storage (v0.2.0-alpha — Completed)
+- block_device_t abstraction + ramdisk (default) + ATA/PIO real backend (QEMU disk read)
+- PCI skeleton + scan
+- Disk image (obsidia_disk.img via make, run with -drive if=ide)
+- VFS write support + ramfs (mounted /tmp, create/write/read/list), mounts/readblk/tmpfs_test cmds
+- initrd stays read-only
+- Display abstraction (info, primitives, back buffer concept, vsync placeholder)
+- USB/xHCI, virtio-net/e1000, audio, mouse input skeletons (structure + init)
+- Shell: blkdevs, mounts, readblk, dispinfo, tmpfs_test (verified write/read test, block access)
+- All Phase 1 commands + behavior preserved
+- Build/run: make, make run (auto disk), existing + new cmds work
+
+See "How to Continue" and verification in query for details.
+
+### Phase 3 — Rich Userland & Self-Hosting (next)
+- Userland C compiler/runtime groundwork (freestanding + minimal libc subset that works in ring 3)
+- Text editor, shell improvements or replacement by GUI launcher
+- Package/app format (perhaps .oar extended or new .oapp)
+- Init process / service model (launch GUI as the main session)
+- Basic permissions / capability model (keep it simple and auditable)
 
 ### Phase 2 — Drivers & Real Storage
 - Storage (AHCI/virtio block or simple ATA first)

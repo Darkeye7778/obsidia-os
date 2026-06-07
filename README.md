@@ -127,7 +127,20 @@ Always run `git pull` before editing.
 - Tiny demo user program (hello_user.bin): prints via SYS_WRITE, GETTICKS, multiple YIELD, clean SYS_EXIT back to shell
 - Interactive shell with both classic and Obsidia-flavored commands (status, demo, vfsinfo, tasks, run, etc.)
 
-Phase 1 foundations complete per ROADMAP: Obsidia can now run real userland programs in ring 3. Future GUI will be a proper userland desktop shell process.
+Phase 1 foundations complete (v0.1.0-alpha): GDT/TSS, tasks/coop multitasking, ring-3 userland + loader + syscalls, preserved console/shell.
+
+Phase 2 (v0.2.0-alpha in progress/completed): Drivers & Real Storage
+- block_device abstraction + registration + blkdevs cmd
+- RAM disk (default ram0) + ATA/PIO real backend (QEMU -hda support)
+- PCI skeleton + scan
+- Disk image support in Makefile (obsidia_disk.img, run with -drive if=ide)
+- VFS extended for write/create, ramfs backend mounted at /tmp (writable runtime)
+- mounts, readblk, tmpfs_test, dispinfo commands
+- Display abstraction (info, clear/fill/blit, backbuf placeholder, vsync hook)
+- USB/xHCI, net (virtio), audio, mouse skeletons
+- initrd/OAR remains read-only and mounted; all Phase 1 commands work
+- Verified: make, existing + new shell cmds, block read, tmpfs write/read test
+See ROADMAP.md for details and Phase 3.
 
 ---
 
@@ -145,8 +158,10 @@ Phase 1 foundations complete per ROADMAP: Obsidia can now run real userland prog
 6. Initramfs + custom OAR format + VFS - **Done**
 7. Interactive shell + Obsidia commands - **Done** (status, demo, etc. + classic compat)
 8-9. Filesystem (VFS over OAR) + user program / syscall foundations - **Done**
-10. Phase 1: GDT/TSS + tasks + cooperative multitasking + userland loader + ring3 execution + expanded syscalls for user progs - **Done** (see ROADMAP.md for remaining Phase 1 polish and Phase 2+)
-11+. Preemptive scheduler, per-process address spaces, full C userland support, drivers, GUI as userland process, etc. - See ROADMAP.md
+10. Phase 1: GDT/TSS + tasks + cooperative multitasking + userland loader + ring3 execution + expanded syscalls for user progs - **Done** (v0.1.0-alpha)
+11. Phase 2: Drivers & Real Storage (block dev, ATA+ramdisk, PCI skeleton, VFS write+ramfs, display abstraction, USB/net/audio/mouse skeletons, disk image, new shell cmds) - **Done** (v0.2.0-alpha)
+12+. Preemptive scheduler polish, C userland, full GUI as userland, more FS, etc. - See ROADMAP.md
+**Base OS Phase 2 complete. GUI can now use block storage, writable FS (/tmp), display layer.**
 
 **Base OS is now ready for you to build the full GUI on top.**
 Key capabilities exposed for GUI work:

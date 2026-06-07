@@ -15,6 +15,14 @@
 #include "syscall.h"
 #include "gdt.h"
 #include "task.h"
+#include "block.h"
+#include "pci.h"
+#include "ata.h"
+#include "display.h"
+#include "drivers/usb.h"
+#include "drivers/net.h"
+#include "drivers/audio.h"
+#include "drivers/mouse.h"
 
 // ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
@@ -81,6 +89,8 @@ void kmain(void) {
     // ===== CLEAR SCREEN =====
     fb_clear(0x00202020);
 
+    display_init();  // Phase 2 abstraction layer
+
     // ===== INIT CONSOLE =====
     console_init(fb->width, fb->height);
 
@@ -97,6 +107,9 @@ void kmain(void) {
         initrd_set((uint64_t)initrd->address, initrd->size);
         vfs_init();
         vfs_mount_initrd_from((uint64_t)initrd->address, initrd->size);
+        // mount ramfs for writable runtime files (Phase 2)
+        extern int vfs_mount_ramfs(const char* path);
+        vfs_mount_ramfs("/tmp");
     }
 
     idt_init();
@@ -105,6 +118,17 @@ void kmain(void) {
     paging_init();
     syscall_init();
     tasking_init();
+    block_init();
+    pci_init();
+    pci_scan();  // skeleton
+    ata_init();
+    ata_detect_and_register();  // real storage attempt for QEMU disk
+
+    // Phase 2 skeletons (structure only)
+    usb_init();
+    net_init();
+    audio_init();
+    mouse_init();
 
     // Create a simple kernel thread so 'tasks' shows something immediately (cooperative)
     extern void dummy_task(void); // defined below

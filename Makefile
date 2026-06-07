@@ -24,6 +24,15 @@ OBJS = \
 	heap.o \
 	initrd.o \
 	vfs.o \
+	ramfs.o \
+	block.o \
+	pci.o \
+	ata.o \
+	display.o \
+	usb.o \
+	net.o \
+	audio.o \
+	mouse.o \
 	gdt.o \
 	task.o \
 	context.o \
@@ -71,6 +80,9 @@ initrd.o: kernel/initrd/initrd.c
 vfs.o: kernel/vfs/vfs.c
 	$(CC) $(CFLAGS) -c kernel/vfs/vfs.c -o vfs.o
 
+ramfs.o: kernel/vfs/ramfs.c
+	$(CC) $(CFLAGS) -c kernel/vfs/ramfs.c -o ramfs.o
+
 idt.o: kernel/idt.c
 	$(CC) $(CFLAGS) -c kernel/idt.c -o idt.o
 
@@ -85,6 +97,30 @@ paging.o: kernel/paging.c
 
 syscall.o: kernel/syscall.c
 	$(CC) $(CFLAGS) -c kernel/syscall.c -o syscall.o
+
+block.o: kernel/block.c
+	$(CC) $(CFLAGS) -c kernel/block.c -o block.o
+
+pci.o: kernel/pci.c
+	$(CC) $(CFLAGS) -c kernel/pci.c -o pci.o
+
+ata.o: kernel/ata.c
+	$(CC) $(CFLAGS) -c kernel/ata.c -o ata.o
+
+display.o: kernel/display.c
+	$(CC) $(CFLAGS) -c kernel/display.c -o display.o
+
+usb.o: kernel/drivers/usb.c
+	$(CC) $(CFLAGS) -c kernel/drivers/usb.c -o usb.o
+
+net.o: kernel/drivers/net.c
+	$(CC) $(CFLAGS) -c kernel/drivers/net.c -o net.o
+
+audio.o: kernel/drivers/audio.c
+	$(CC) $(CFLAGS) -c kernel/drivers/audio.c -o audio.o
+
+mouse.o: kernel/drivers/mouse.c
+	$(CC) $(CFLAGS) -c kernel/drivers/mouse.c -o mouse.o
 
 gdt.o: kernel/gdt.c
 	$(CC) $(CFLAGS) -c kernel/gdt.c -o gdt.o
@@ -113,11 +149,17 @@ iso: $(LIMINE_DIR) $(KERNEL)
 	$(LIMINE_BIN) bios-install $(ISO)
 
 run: iso
-	qemu-system-x86_64 -cdrom $(ISO) -serial stdio
+	qemu-system-x86_64 -cdrom $(ISO) -serial stdio -drive file=obsidia_disk.img,format=raw,if=ide -m 256
+
+# Create a small test disk image for ATA/PIO testing (10MB raw)
+obsidia_disk.img:
+	dd if=/dev/zero of=$@ bs=1M count=10 2>/dev/null || true
+	@echo "Test disk image created: $@ (attach with -drive ...if=ide)"
 
 clean:
 	rm -f *.o $(KERNEL) $(ISO)
 	rm -f userland/*.bin initrd/hello_user.bin
+	rm -f obsidia_disk.img
 
 userland/hello_user.bin: userland/hello_user.asm
 	nasm -f bin -o $@ $<
