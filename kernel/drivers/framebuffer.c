@@ -54,3 +54,10 @@ void fb_draw_string(uint64_t x, uint64_t y, const char* str, uint32_t fg, uint32
         str++;
     }
 }
+
+void fb_get_info(uint64_t* width, uint64_t* height, uint64_t* pitch, uint32_t** addr) {
+    if (width) *width = fb_width;
+    if (height) *height = fb_height;
+    if (pitch) *pitch = fb_pitch * 4;  // bytes per line as original Limine pitch
+    if (addr) *addr = fb;
+}

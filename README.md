@@ -119,11 +119,15 @@ Always run `git pull` before editing.
 - Custom OAR1 archive format + full VFS layer (read, ls, cat via unified interface, initrd mounted as /)
 - Real heap with kfree (free list + split/coalesce) + improved PMM (hint cursor + free count)
 - Paging enabled (higher-half kernel + 256MiB low identity)
-- Syscall interface (int 0x80, base numbers for write/yield/exit/ticks/fbinfo)
-- Interactive shell with both classic and Obsidia-flavored commands (status, demo, vfsinfo, etc.)
-- Foundations for user programs / GUI: VFS for assets, syscalls for services, IRQ input events, FB access path, timer for scheduling/animation
+- Syscall interface (int 0x80 DPL=3, fully working from ring 3: EXIT/WRITE/GETTICKS/YIELD/FBINFO with real FB values)
+- GDT/TSS with proper kernel + user (ring 3) code/data segments and TSS rsp0 for privilege transitions
+- Basic task/process structs (PID, state, kstack/ustack, cr3, rip/rsp, ring, name) + global list
+- Cooperative multitasking (kernel thread creation, yield, context switch in asm, schedule, 'tasks' lister)
+- Userland loader + safe ring-3 launch ('run <prog>'): flat bin from VFS, paged with USER flags at 0x400000, user stack, iretq using GDT selectors
+- Tiny demo user program (hello_user.bin): prints via SYS_WRITE, GETTICKS, multiple YIELD, clean SYS_EXIT back to shell
+- Interactive shell with both classic and Obsidia-flavored commands (status, demo, vfsinfo, tasks, run, etc.)
 
-The kernel is now in a state where a full GUI (windowing, widgets, custom workflows) can be developed on top as user-level code.
+Phase 1 foundations complete per ROADMAP: Obsidia can now run real userland programs in ring 3. Future GUI will be a proper userland desktop shell process.
 
 ---
 
@@ -141,7 +145,8 @@ The kernel is now in a state where a full GUI (windowing, widgets, custom workfl
 6. Initramfs + custom OAR format + VFS - **Done**
 7. Interactive shell + Obsidia commands - **Done** (status, demo, etc. + classic compat)
 8-9. Filesystem (VFS over OAR) + user program / syscall foundations - **Done**
-10+. Full per-process user mode, preemptive scheduler with context switch, storage drivers, C userland toolchain, writeable FS, desktop/GUI, automation, robotics integration - See ROADMAP.md
+10. Phase 1: GDT/TSS + tasks + cooperative multitasking + userland loader + ring3 execution + expanded syscalls for user progs - **Done** (see ROADMAP.md for remaining Phase 1 polish and Phase 2+)
+11+. Preemptive scheduler, per-process address spaces, full C userland support, drivers, GUI as userland process, etc. - See ROADMAP.md
 
 **Base OS is now ready for you to build the full GUI on top.**
 Key capabilities exposed for GUI work:

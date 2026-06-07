@@ -5,6 +5,7 @@
 #include <stddef.h>
 #include "../initrd/initrd.h"
 #include "../vfs/vfs.h"
+#include "../task.h"
 
 typedef void (*command_func_t)(const char *args);
 
@@ -45,6 +46,8 @@ static void cmd_help(const char* args) {
     console_print("  vfsinfo  - VFS mount status\n");
     console_print("  status   - system status (Obsidia style)\n");
     console_print("  demo     - exercise base user/syscall path for GUI\n");
+    console_print("  tasks    - list tasks (cooperative multitasking)\n");
+    console_print("  run <p>  - load and run user program from VFS (ring 3)\n");
 }
 
 static void cmd_clear(const char* args) {
@@ -168,6 +171,27 @@ static void cmd_demo(const char* args) {
     // In future: run_user_demo() from syscall when ring3 + GDT complete.
 }
 
+static void cmd_tasks(const char* args) {
+    (void)args;
+    task_print_list();
+}
+
+static void cmd_run(const char* args) {
+    if (!args || args[0] == '\0') {
+        console_print("Usage: run <program>\n");
+        return;
+    }
+    // args may have trailing, take first word
+    char prog[64];
+    int i=0;
+    while (args[i] && args[i] != ' ' && i < 63) {
+        prog[i] = args[i];
+        i++;
+    }
+    prog[i] = 0;
+    task_run_user_program(prog);
+}
+
 static command_t commands[] = {
     {"help",    "list commands",        cmd_help},
     {"clear",   "clear screen",         cmd_clear},
@@ -181,6 +205,8 @@ static command_t commands[] = {
     {"vfsinfo", "VFS mount status",     cmd_vfsinfo},
     {"status",  "system status",        cmd_status},
     {"demo",    "GUI base demo",        cmd_demo},
+    {"tasks",   "list tasks",           cmd_tasks},
+    {"run",     "run user program",     cmd_run},
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);

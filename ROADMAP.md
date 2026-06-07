@@ -67,21 +67,23 @@ Rejects: planned obsolescence, excessive lock-in, unremovable bloat, forced clou
 
 ## Phased Plan
 
-### Phase 0 — Base OS for GUI (Current — Completed in this work)
-- VFS + custom format
-- Paging + real memory management
-- Interrupts, timer, input
-- Syscalls + user/kernel boundary foundations
-- Shell + demo path
+### Phase 0/1 — Userland Foundations (Current — Completed)
+- Strengthened GDT/TSS (proper kernel + user ring-3 code/data segments + TSS rsp0)
+- Basic task structs + cooperative multitasking (create, yield, asm context_switch, schedule, 'tasks')
+- Userland loader + safe ring-3 launch from VFS flat binaries (map with USER PTEs, user stack, iretq, 'run <prog>')
+- Syscalls fully usable from ring 3 (EXIT/WRITE/GETTICKS/YIELD/FBINFO returning real values)
+- Tiny demo user program (hello_user.bin) exercising the path and exiting cleanly
+- Shell commands: tasks, run <program> (in addition to previous)
+- All prior base preserved; everything buildable incrementally
 
-**Next for you**: Build the GUI layer (window manager/compositor, widgets, input routing, custom layouts, automation engine hooks, Obsidia Assistant integration points). The kernel will evolve in response to GUI needs (more syscalls, better event delivery, direct FB mapping or safe blitting, user heaps, etc.).
+**Next**: Polish (make shell a proper task, better cleanup, more robust unwind), move toward preemptive (timer tick + schedule), per-process paging when needed, C userland support, then build the GUI as a real userland process (desktop shell).
 
-### Phase 1 — Userland & Multitasking (Immediate Follow-up)
-- Full GDT with user code/data segments (DPL=3) + minimal TSS for ring transitions + privilege stacks
-- Proper context switch (save/restore GPRs + CR3 when we go per-process)
-- Preemptive scheduler (timer tick forces switch, round-robin or priority + yield points)
-- Per-process (or per-"app") address spaces (separate CR3, user page tables, copy-on-write potential)
-- Flat binary (and later simple ELF) loader from VFS into user VAS + user stack + ring3 entry via iretq
+### Phase 1 (remaining) / Phase 2 — Userland & Multitasking
+- Preemptive scheduler driven by PIT
+- Per-process address spaces (separate CR3)
+- Flat/ELF loader improvements, user heaps
+- Full C userland toolchain + crt
+- Storage + real FS for persistent programs
 - User heap (brk/sbrk or mmap-style via syscall) + basic C runtime for user programs
 - Proper syscall ABI (Linux-like register passing or clean custom) + safe user-kernel copy
 - Event delivery (keyboard/mouse/timer events to focused "window" or subscribed tasks)

@@ -13,6 +13,8 @@
 #include "timer.h"
 #include "paging.h"
 #include "syscall.h"
+#include "gdt.h"
+#include "task.h"
 
 // ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
@@ -43,6 +45,12 @@ static void serial_init(void) {
 static void serial_write(const char *str) {
     while (*str) {
         outb(0x3F8, *str++);
+    }
+}
+
+static void dummy_task(void) {
+    for (;;) {
+        task_yield();
     }
 }
 
@@ -81,6 +89,8 @@ void kmain(void) {
     memory_init(memmap_request.response);
     heap_init();
 
+    gdt_init();  // must be early for proper segments / TSS before IDT/user code
+
     if (module_request.response != NULL && module_request.response->module_count > 0) {
         struct limine_file *initrd = module_request.response->modules[0];
 
@@ -94,6 +104,11 @@ void kmain(void) {
     timer_init();
     paging_init();
     syscall_init();
+    tasking_init();
+
+    // Create a simple kernel thread so 'tasks' shows something immediately (cooperative)
+    extern void dummy_task(void); // defined below
+    task_create_kernel_thread(dummy_task, "kernel-idle");
 
     console_print("This is real now.\n\n");
 

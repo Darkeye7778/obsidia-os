@@ -16,6 +16,9 @@ void disable_interrupts(void);
 // Send EOI to PIC(s) for an IRQ (0-15)
 void pic_send_eoi(uint8_t irq);
 
+// Set a user-callable interrupt gate (DPL=3) e.g. for syscalls
+void idt_set_user_interrupt_gate(uint8_t vector, uint64_t handler);
+
 // Low level port io (used by PIC init too)
 void outb(uint16_t port, uint8_t val);
 uint8_t inb(uint16_t port);

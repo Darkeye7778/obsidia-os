@@ -24,6 +24,9 @@ OBJS = \
 	heap.o \
 	initrd.o \
 	vfs.o \
+	gdt.o \
+	task.o \
+	context.o \
 	idt.o \
 	isr.o \
 	timer.o \
@@ -83,6 +86,15 @@ paging.o: kernel/paging.c
 syscall.o: kernel/syscall.c
 	$(CC) $(CFLAGS) -c kernel/syscall.c -o syscall.o
 
+gdt.o: kernel/gdt.c
+	$(CC) $(CFLAGS) -c kernel/gdt.c -o gdt.o
+
+task.o: kernel/task.c
+	$(CC) $(CFLAGS) -c kernel/task.c -o task.o
+
+context.o: kernel/context.asm
+	nasm -f elf64 kernel/context.asm -o context.o
+
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)
 
@@ -105,3 +117,14 @@ run: iso
 
 clean:
 	rm -f *.o $(KERNEL) $(ISO)
+	rm -f userland/*.bin initrd/hello_user.bin
+
+userland/hello_user.bin: userland/hello_user.asm
+	nasm -f bin -o $@ $<
+
+initrd/hello_user.bin: userland/hello_user.bin
+	cp $< $@
+
+programs: userland/hello_user.bin initrd/hello_user.bin
+	@echo "User program prepared in initrd/. Run: python3 build_oar.py initrd initrd.oar && make"
+

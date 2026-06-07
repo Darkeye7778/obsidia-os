@@ -1,5 +1,6 @@
 #include "idt.h"
 #include "console/console.h"
+#include "gdt.h"
 #include <stdint.h>
 
 // x86_64 IDT entry
@@ -101,12 +102,17 @@ void idt_set_handler(uint8_t vector, isr_handler_t handler) {
 static void idt_set_gate(uint8_t vector, uint64_t handler, uint8_t type_attr, uint8_t ist) {
     idt_entry_t* e = &idt[vector];
     e->offset_low = (uint16_t)handler;
-    e->selector = 0x08; // kernel code segment (will be set by GDT later, assume 0x08 for now)
+    e->selector = gdt_get_kernel_code_selector();
     e->ist = ist;
     e->type_attr = type_attr; // 0x8E = interrupt gate, present
     e->offset_mid = (uint16_t)(handler >> 16);
     e->offset_high = (uint32_t)(handler >> 32);
     e->zero = 0;
+}
+
+void idt_set_user_interrupt_gate(uint8_t vector, uint64_t handler) {
+    // 0xEE = present (1), DPL=3 (11), type=interrupt gate (1110)
+    idt_set_gate(vector, handler, 0xEE, 0);
 }
 
 void idt_load(void) {
