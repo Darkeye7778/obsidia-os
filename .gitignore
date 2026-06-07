@@ -2,7 +2,14 @@
 *.o
 *.elf
 *.iso
+*.bin
 
 # temp / editor
 *~
+*.save
+*~
 limine/
+
+# OS specific
+.DS_Store
+Thumbs.db

@@ -9,4 +9,5 @@
 #define KEY_CTRL_C       1103
 #define KEY_CTRL_L       1112
 
-int keyboard_getkey(void);
+void keyboard_init(void);
+int keyboard_getkey(void);  // returns next key (blocks with hlt until available after interrupts enabled)

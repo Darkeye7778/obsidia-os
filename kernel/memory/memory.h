@@ -11,3 +11,4 @@ void* pmm_alloc_page();
 void pmm_free_page(void* addr);
 void memory_print_hex64(uint64_t value);
 void memory_print_dec(uint64_t value);
+uint64_t memory_get_free_pages(void);

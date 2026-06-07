@@ -1,11 +1,6 @@
 #include "keyboard.h"
+#include "idt.h"
 #include <stdint.h>
-
-static inline uint8_t inb(uint16_t port) {
-    uint8_t value;
-    __asm__ volatile ("inb %1, %0" : "=a"(value) : "Nd"(port));
-    return value;
-}
 
 static int shift_down = 0;
 static int ctrl_down = 0;
@@ -85,80 +80,118 @@ static char uppercase(char c) {
     return c;
 }
 
-int keyboard_getkey(void) {
-    while (1) {
-        if (!(inb(0x64) & 1)) {
-            continue;
-        }
+// ===== IRQ driven input (new) =====
+#define KEYBUF_SIZE 64
+static int keybuf[KEYBUF_SIZE];
+static int keybuf_head = 0;
+static int keybuf_tail = 0;
 
-        uint8_t scancode = inb(0x60);
+static void enqueue_key(int k) {
+    int next = (keybuf_head + 1) % KEYBUF_SIZE;
+    if (next == keybuf_tail) return; // drop on full
+    keybuf[keybuf_head] = k;
+    keybuf_head = next;
+}
 
-        if (scancode == 0xE0) {
-            extended = 1;
-            continue;
-        }
+static int dequeue_key(void) {
+    if (keybuf_head == keybuf_tail) return 0;
+    int k = keybuf[keybuf_tail];
+    keybuf_tail = (keybuf_tail + 1) % KEYBUF_SIZE;
+    return k;
+}
 
-        int released = scancode & 0x80;
-        uint8_t code = scancode & 0x7F;
+// Keyboard IRQ handler (called for vector 33 / IRQ1)
+static void keyboard_irq_handler(registers_t* regs) {
+    (void)regs;
 
-        if (extended) {
-            extended = 0;
+    uint8_t scancode = inb(0x60);
 
-            if (released) {
-                continue;
-            }
-
-            if (code == 0x4B) return KEY_ARROW_LEFT;
-            if (code == 0x4D) return KEY_ARROW_RIGHT;
-            if (code == 0x48) return KEY_ARROW_UP;
-            if (code == 0x50) return KEY_ARROW_DOWN;
-
-            continue;
-        }
-
-        if (code == 0x2A || code == 0x36) {
-            shift_down = !released;
-            continue;
-        }
-
-        if (code == 0x1D) {
-            ctrl_down = !released;
-            continue;
-        }
-
-        if (code == 0x3A && !released) {
-            caps_lock = !caps_lock;
-            continue;
-        }
-
-        if (released) {
-            continue;
-        }
-
-        char c;
-
-        if (shift_down) {
-            c = shift_map[code];
-        } else {
-            c = normal_map[code];
-
-            if (caps_lock && is_letter(c)) {
-                c = uppercase(c);
-            }
-        }
-
-        if (!c) {
-            continue;
-        }
-
-        if (ctrl_down) {
-            if (c == 'a' || c == 'A') return KEY_CTRL_A;
-            if (c == 'c' || c == 'C') return KEY_CTRL_C;
-            if (c == 'l' || c == 'L') return KEY_CTRL_L;
-
-            continue;
-        }
-
-        return c;
+    if (scancode == 0xE0) {
+        extended = 1;
+        pic_send_eoi(1);
+        return;
     }
+
+    int released = scancode & 0x80;
+    uint8_t code = scancode & 0x7F;
+
+    if (extended) {
+        extended = 0;
+        if (released) { pic_send_eoi(1); return; }
+        int special = 0;
+        if (code == 0x4B) special = KEY_ARROW_LEFT;
+        else if (code == 0x4D) special = KEY_ARROW_RIGHT;
+        else if (code == 0x48) special = KEY_ARROW_UP;
+        else if (code == 0x50) special = KEY_ARROW_DOWN;
+        if (special) enqueue_key(special);
+        pic_send_eoi(1);
+        return;
+    }
+
+    if (code == 0x2A || code == 0x36) {
+        shift_down = !released;
+        pic_send_eoi(1);
+        return;
+    }
+
+    if (code == 0x1D) {
+        ctrl_down = !released;
+        pic_send_eoi(1);
+        return;
+    }
+
+    if (code == 0x3A && !released) {
+        caps_lock = !caps_lock;
+        pic_send_eoi(1);
+        return;
+    }
+
+    if (released) {
+        pic_send_eoi(1);
+        return;
+    }
+
+    char c = 0;
+    if (shift_down) {
+        c = shift_map[code];
+    } else {
+        c = normal_map[code];
+        if (caps_lock && is_letter(c)) c = uppercase(c);
+    }
+
+    if (!c) {
+        pic_send_eoi(1);
+        return;
+    }
+
+    int key = (int)c;
+    if (ctrl_down) {
+        if (c == 'a' || c == 'A') key = KEY_CTRL_A;
+        else if (c == 'c' || c == 'C') key = KEY_CTRL_C;
+        else if (c == 'l' || c == 'L') key = KEY_CTRL_L;
+        else { pic_send_eoi(1); return; }
+    }
+
+    enqueue_key(key);
+    pic_send_eoi(1);
+}
+
+void keyboard_init(void) {
+    keybuf_head = keybuf_tail = 0;
+
+    // Register our C handler for IRQ1 (vector 33 after PIC remap)
+    idt_set_handler(33, keyboard_irq_handler);
+
+    // Unmask IRQ0 (timer bit0) and IRQ1 (keyboard bit1) on master PIC
+    uint8_t mask = inb(0x21);
+    mask &= ~((1<<0) | (1<<1));
+    outb(0x21, mask);
+}
+
+int keyboard_getkey(void) {
+    // Wait for a key (works both polled early and IRQ later)
+    while (keybuf_head == keybuf_tail) {
+        __asm__ volatile ("hlt");
+    }
+    return dequeue_key();
 }

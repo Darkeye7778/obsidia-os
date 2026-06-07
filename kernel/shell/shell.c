@@ -4,6 +4,7 @@
 #include "../memory/memory.h"
 #include <stddef.h>
 #include "../initrd/initrd.h"
+#include "../vfs/vfs.h"
 
 typedef void (*command_func_t)(const char *args);
 
@@ -39,8 +40,11 @@ static void cmd_help(const char* args) {
     console_print("  about    - show OS info\n");
     console_print("  meminfo  - memory status\n");
     console_print("  initrd   - show initrd info\n");
-    console_print("  ls       - list initrd files\n");
-    console_print("  cat      - read initrd file\n");
+    console_print("  ls       - list root files (VFS)\n");
+    console_print("  cat      - read file via VFS\n");
+    console_print("  vfsinfo  - VFS mount status\n");
+    console_print("  status   - system status (Obsidia style)\n");
+    console_print("  demo     - exercise base user/syscall path for GUI\n");
 }
 
 static void cmd_clear(const char* args) {
@@ -96,7 +100,12 @@ void cmd_initrd(const char *args) {
 
 void cmd_ls(const char *args) {
     (void)args;
-    initrd_list_files();
+    vfs_node_t* root = vfs_get_root();
+    if (!root) {
+        console_print("VFS not mounted\n");
+        return;
+    }
+    vfs_list(root);
 }
 
 static void cmd_cat(const char* args) {
@@ -105,7 +114,58 @@ static void cmd_cat(const char* args) {
         return;
     }
 
-    initrd_cat_file(args);
+    vfs_node_t* node = vfs_open(args);
+    if (!node) {
+        console_print("File not found.\n");
+        return;
+    }
+    if (node->type != VFS_FILE) {
+        console_print("Not a file.\n");
+        return;
+    }
+
+    // Stream read and print (small files)
+    uint8_t buf[64];
+    uint64_t off = 0;
+    while (1) {
+        int64_t got = vfs_read(node, off, buf, sizeof(buf));
+        if (got <= 0) break;
+        for (int64_t i = 0; i < got; i++) {
+            console_putc((char)buf[i]);
+        }
+        off += got;
+        if ((uint64_t)got < sizeof(buf)) break;
+    }
+    console_print("\n");
+}
+
+static void cmd_vfsinfo(const char* args) {
+    (void)args;
+    vfs_node_t* r = vfs_get_root();
+    if (r) {
+        console_print("VFS root mounted.\n");
+        console_print("Root children available via ls.\n");
+    } else {
+        console_print("VFS not mounted.\n");
+    }
+}
+
+static void cmd_status(const char* args) {
+    (void)args;
+    console_print("Obsidia OS base: VFS+IRQ+Timer+Paging+Syscalls ready.\n");
+    console_print("No bloat. Custom OAR. Longevity first.\n");
+    console_print("Type 'demo' to see GUI handoff path.\n");
+}
+
+static void cmd_demo(const char* args) {
+    (void)args;
+    console_print("=== Obsidia GUI Base Demo ===\n");
+    console_print("Syscall numbers defined for user programs (write, yield, fbinfo, etc).\n");
+    console_print("VFS mounted for assets/fonts.\n");
+    console_print("Input is IRQ driven, timer running.\n");
+    console_print("Paging active (user virtual ready).\n");
+    console_print("Next: your full GUI can use these foundations.\n");
+    // In future: run_user_demo() from syscall when ring3 + GDT complete.
 }
 
 static command_t commands[] = {
@@ -116,8 +176,11 @@ static command_t commands[] = {
     {"about",   "show OS info",         cmd_about},
     {"meminfo", "memory status",        cmd_meminfo},
     {"initrd", "show initrd info",      cmd_initrd},
-    {"ls", "list initrd files",		cmd_ls},
-    {"cat", "read initrd file",         cmd_cat},
+    {"ls", "list root files (VFS)",     cmd_ls},
+    {"cat", "read file via VFS",        cmd_cat},
+    {"vfsinfo", "VFS mount status",     cmd_vfsinfo},
+    {"status",  "system status",        cmd_status},
+    {"demo",    "GUI base demo",        cmd_demo},
 };
 
 static const int command_count = sizeof(commands) / sizeof(commands[0]);

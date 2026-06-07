@@ -13,6 +13,8 @@ static uint8_t* pmm_bitmap = 0;
 static uint64_t pmm_bitmap_size = 0;
 
 static uint64_t pmm_max_page = 0;
+static uint64_t pmm_next_hint = 0;
+static uint64_t pmm_free_count = 0;
 
 static void bitmap_set(uint64_t page) {
     pmm_bitmap[page / 8] |= (1 << (page % 8));
@@ -156,6 +158,7 @@ void memory_init(struct limine_memmap_response* memmap) {
 
         for (uint64_t p = 0; p < page_count; p++) {
             bitmap_clear(start_page + p);
+            pmm_free_count++;
         }
     }
 
@@ -164,9 +167,13 @@ void memory_init(struct limine_memmap_response* memmap) {
     uint64_t bitmap_page_count = (pmm_bitmap_size + PAGE_SIZE - 1) / PAGE_SIZE;
 
     for (uint64_t i = 0; i < bitmap_page_count; i++) {
-        bitmap_set(bitmap_start_page + i);
+        if (!bitmap_test(bitmap_start_page + i)) {
+            bitmap_set(bitmap_start_page + i);
+            pmm_free_count--;
+        }
     }
 
+    pmm_next_hint = 0;
     console_print("PMM bitmap initialized\n");
 }
 
@@ -216,33 +223,34 @@ uint64_t memory_get_usable_pages(void) {
 }
 
 void* pmm_alloc_page(void) {
-    if (!pmm_bitmap) {
+    if (!pmm_bitmap || pmm_free_count == 0) {
         return 0;
     }
 
-    for (uint64_t i = 0; i < total_pages; i++) {
-        if (!bitmap_test(i)) {
-            bitmap_set(i);
-            return (void*)(i * PAGE_SIZE);
+    uint64_t start = pmm_next_hint;
+    for (uint64_t i = 0; i < pmm_max_page; i++) {
+        uint64_t p = (start + i) % pmm_max_page;
+        if (!bitmap_test(p)) {
+            bitmap_set(p);
+            pmm_free_count--;
+            pmm_next_hint = (p + 1) % pmm_max_page;
+            return (void*)(p * PAGE_SIZE);
         }
     }
 
-    return 0; // out of memory
+    return 0; // out of memory (should not reach if count accurate)
 }
 
 void pmm_free_page(void* addr) {
+    if (!addr) return;
     uint64_t page = (uint64_t)addr / PAGE_SIZE;
-    bitmap_clear(page);
+    if (page >= pmm_max_page) return;
+    if (bitmap_test(page)) {
+        bitmap_clear(page);
+        pmm_free_count++;
+    }
 }
 
 uint64_t memory_get_free_pages(void) {
-    uint64_t free = 0;
-
-    for (uint64_t i = 0; i < pmm_max_page; i++) {
-        if (!bitmap_test(i)) {
-            free++;
-        }
-    }
-
-    return free;
+    return pmm_free_count;
 }

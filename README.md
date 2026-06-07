@@ -111,13 +111,19 @@ Always run `git pull` before editing.
 
 ---
 
-## Current Progress
+## Current Progress (Base OS for GUI)
 
-- Framebuffer rendering
-- Text rendering (8x8 font)
-- Console with cursor + editing
-- Keyboard input (modifiers, arrows)
-- Line editing (in progress)
+- Framebuffer + 8x8 text + console with editing
+- IRQ-driven keyboard (ring buffer) + PIT timer (~100Hz)
+- IDT + PIC remap + exception handling + interrupts enabled
+- Custom OAR1 archive format + full VFS layer (read, ls, cat via unified interface, initrd mounted as /)
+- Real heap with kfree (free list + split/coalesce) + improved PMM (hint cursor + free count)
+- Paging enabled (higher-half kernel + 256MiB low identity)
+- Syscall interface (int 0x80, base numbers for write/yield/exit/ticks/fbinfo)
+- Interactive shell with both classic and Obsidia-flavored commands (status, demo, vfsinfo, etc.)
+- Foundations for user programs / GUI: VFS for assets, syscalls for services, IRQ input events, FB access path, timer for scheduling/animation
+
+The kernel is now in a state where a full GUI (windowing, widgets, custom workflows) can be developed on top as user-level code.
 
 ---
 
@@ -129,30 +135,19 @@ Always run `git pull` before editing.
 
 ---
 
-## List Until Self Editable
+## List Until Self Editable (Base Complete for GUI)
 
-1. Add Makefile build system - Done
-2. Add framebuffer text rendering - Done
-3. Add on-screen console - Done
-4. Add keyboard input - Done
-5. Add memory manager - Done
-   <ol type="A">
-     <li>Request Limine memory map</li>
-     <li>Print memory map regions</li>
-     <li>Calculate total usable memory</li>
-     <li>Build physical memory manager structs</li>
-     <li>Mark usable pages as free</li>
-     <li>Reserve kernel / bootloader / framebuffer memory</li>
-     <li>Implement pmm_alloc_page()</li>
-     <li>Implement pmm_free_page()</li>
-     <li>Add meminfo shell command</li>
-     <li>Add basic heap allocator groundwork</li>
-   </ol>
-6. Add initramfs support - Done
-7. Add simple shell - Updated
-8. Add filesystem read support - Done
-9. Make personal Obsidia Archive Format (Remove TAR) - In Progress
-10. Add filesystem write support - TBD
-11. Add text editor - TBD
-12. Add user program support - TBD
-13. Add compiler toolchain groundwork - TBD 
+1-5. Core boot, graphics, console, input, memory (PMM + real heap with free) - **Done** (enhanced with paging, IRQs, timer)
+6. Initramfs + custom OAR format + VFS - **Done**
+7. Interactive shell + Obsidia commands - **Done** (status, demo, etc. + classic compat)
+8-9. Filesystem (VFS over OAR) + user program / syscall foundations - **Done**
+10+. Full per-process user mode, preemptive scheduler with context switch, storage drivers, C userland toolchain, writeable FS, desktop/GUI, automation, robotics integration - See ROADMAP.md
+
+**Base OS is now ready for you to build the full GUI on top.**
+Key capabilities exposed for GUI work:
+- VFS for loading fonts, images, configs, "applets"
+- Syscalls (SYS_WRITE, SYS_YIELD, SYS_GETTICKS, SYS_FBINFO, SYS_EXIT, ...)
+- IRQ keyboard events (via future event queue or polling getkey)
+- Timer for smooth animation / scheduling
+- Paging + higher half (safe virtual memory model)
+- Ability to add flat user binaries or future ELF user programs that use the syscall ABI

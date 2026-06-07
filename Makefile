@@ -22,7 +22,13 @@ OBJS = \
         shell.o \
 	memory.o \
 	heap.o \
-	initrd.o
+	initrd.o \
+	vfs.o \
+	idt.o \
+	isr.o \
+	timer.o \
+	paging.o \
+	syscall.o
 
 all: iso
 
@@ -58,6 +64,24 @@ heap.o: kernel/memory/heap.c
 
 initrd.o: kernel/initrd/initrd.c
 	$(CC) $(CFLAGS) -c kernel/initrd/initrd.c -o initrd.o
+
+vfs.o: kernel/vfs/vfs.c
+	$(CC) $(CFLAGS) -c kernel/vfs/vfs.c -o vfs.o
+
+idt.o: kernel/idt.c
+	$(CC) $(CFLAGS) -c kernel/idt.c -o idt.o
+
+isr.o: kernel/isr.asm
+	nasm -f elf64 kernel/isr.asm -o isr.o
+
+timer.o: kernel/timer.c
+	$(CC) $(CFLAGS) -c kernel/timer.c -o timer.o
+
+paging.o: kernel/paging.c
+	$(CC) $(CFLAGS) -c kernel/paging.c -o paging.o
+
+syscall.o: kernel/syscall.c
+	$(CC) $(CFLAGS) -c kernel/syscall.c -o syscall.o
 
 $(KERNEL): $(OBJS)
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)

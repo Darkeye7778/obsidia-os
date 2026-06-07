@@ -165,3 +165,11 @@ void initrd_cat_file(const char* filename) {
 
     console_print("File not found.\n");
 }
+
+uint64_t initrd_get_raw_addr(void) {
+    return initrd_address;
+}
+
+uint64_t initrd_get_raw_size(void) {
+    return initrd_size;
+}

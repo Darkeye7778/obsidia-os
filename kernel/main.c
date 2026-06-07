@@ -8,6 +8,11 @@
 #include "memory/heap.h"
 #include <stddef.h>
 #include "initrd/initrd.h"
+#include "vfs/vfs.h"
+#include "idt.h"
+#include "timer.h"
+#include "paging.h"
+#include "syscall.h"
 
 // ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
@@ -22,10 +27,8 @@ static volatile struct limine_module_request module_request = {
     .revision = 0
 };
 
-// ===== SERIAL (optional debug, you already had this) =====
-static inline void outb(uint16_t port, uint8_t val) {
-    __asm__ volatile ("outb %0, %1" : : "a"(val), "Nd"(port));
-}
+// ===== SERIAL (optional debug) =====
+// outb is provided by idt.h (shared low-level IO)
 
 static void serial_init(void) {
     outb(0x3F8 + 1, 0x00);
@@ -82,32 +85,16 @@ void kmain(void) {
         struct limine_file *initrd = module_request.response->modules[0];
 
         initrd_set((uint64_t)initrd->address, initrd->size);
+        vfs_init();
+        vfs_mount_initrd_from((uint64_t)initrd->address, initrd->size);
     }
 
-/*
-    memory_print_map();
+    idt_init();
+    keyboard_init();
+    timer_init();
+    paging_init();
+    syscall_init();
 
-    void* test_page = pmm_alloc_page();
-
-    console_print("Allocated page at: ");
-    memory_print_hex64((uint64_t)test_page);
-    console_print("\n");
-
-    pmm_free_page(test_page);
-
-    console_print("Freed that page.\n");
-
-    void* test_page2 = pmm_alloc_page();
-
-    console_print("Allocated again at: ");
-    memory_print_hex64((uint64_t)test_page2);
-    console_print("\n");
-
-    void* heap_test = kmalloc(64);
-    console_print("kmalloc test: ");
-    memory_print_hex64((uint64_t)heap_test);
-    console_print("\n");
-*/
     console_print("This is real now.\n\n");
 
     console_print("Type something:\n");
@@ -117,6 +104,8 @@ void kmain(void) {
     line_editor_init();
 
     console_set_edit_region_here();
+
+    enable_interrupts();
 
     // ===== MAIN INPUT LOOP =====
     while (1) {
