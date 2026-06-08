@@ -3,8 +3,6 @@
 #include "../memory/heap.h"
 #include <stdint.h>
 
-void serial_write(const char *str);
-
 static window_t* window_list = 0;  // simple list, head is topmost for simplicity
 static uint32_t next_win_id = 1;
 static window_t* focused_window = 0;
@@ -16,7 +14,6 @@ void gui_window_init(void) {
 }
 
 window_t* gui_window_create(int x, int y, uint64_t w, uint64_t h, const char* title) {
-    serial_write("DIAG: entering gui_window_create\n");
     window_t* win = (window_t*)kmalloc(sizeof(window_t));
     if (!win) return 0;
 
@@ -51,7 +48,6 @@ window_t* gui_window_create(int x, int y, uint64_t w, uint64_t h, const char* ti
     console_print(win->title);
     console_print("\n");
 
-    serial_write("DIAG: window created\n");
     return win;
 }
 

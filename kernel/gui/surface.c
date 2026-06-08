@@ -4,8 +4,6 @@
 #include "../memory/heap.h"
 #include <stdint.h>
 
-void serial_write(const char *str);
-
 static uint32_t next_surface_id = 1;
 
 void gui_surface_init(void) {
@@ -13,7 +11,6 @@ void gui_surface_init(void) {
 }
 
 surface_t* gui_surface_create(uint64_t width, uint64_t height) {
-    serial_write("DIAG: entering gui_surface_create\n");
     if (width == 0 || height == 0) return 0;
 
     surface_t* s = (surface_t*)kmalloc(sizeof(surface_t));
@@ -37,7 +34,6 @@ surface_t* gui_surface_create(uint64_t width, uint64_t height) {
         s->buffer[i] = 0xFF000000; // opaque black
     }
 
-    serial_write("DIAG: surface created\n");
     return s;
 }
 
