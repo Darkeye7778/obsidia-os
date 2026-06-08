@@ -19,7 +19,7 @@ The kernel is past the early "hobby kernel with terminal" stage and now provides
 - IDT + exception handling + 8259 PIC remapping + interrupt enable
 - Physical memory manager (bitmap with fast hint cursor + accurate free count)
 - Real kernel heap (`kmalloc`/`kfree`) — free-list with splitting and coalescing
-- Paging enabled (4-level, higher-half kernel alias + 256 MiB low identity mapping)
+- Paging enabled (4-level, higher-half kernel alias + 4 GiB low identity + explicit preserve for Limine bootloader pointers (modules, fb) + transition stack + correct kernel phys base)
 - Custom **OAR1** archive format (magic "OAR1", packed files+dirs, 8-byte aligned) + Python builder
 - Virtual File System (VFS) layer with unified nodes, open/read/list for root (initrd OAR mounted as `/`)
 - Interactive shell with both classic commands and new Obsidia-flavored ones (`status`, `demo`, `vfsinfo`, etc.)
@@ -79,6 +79,25 @@ Rejects: planned obsolescence, excessive lock-in, unremovable bloat, forced clou
 **Next**: Polish + Phase 2 drivers/storage (done below), then preemptive, per-process, C userland, GUI as userland desktop shell.
 
 ### Phase 2 — Drivers & Real Storage (v0.2.0-alpha — Completed)
+
+### Phase 3A — GUI Foundations (v0.3.0-alpha — Completed)
+- Surface abstraction (surface_t + allocation via kmalloc, clear/fill/blit)
+- Compositor foundation (Z-order walk + display_blit of visible windows + simple borders via Phase 2 display)
+- window_t + manager (create with backing surface, destroy, move, focus, visibility, list)
+- Event system (event_t, queue, gui_post_key_event from shell/IRQ path, focused-window routing, gui_process_events)
+- gui-demo kernel task exercises the full path: creates demo window, draws via surface, runs compositor each tick, reacts to arrow keys (move) posted as events
+- Critical boot fix for Phase 3A: after moving paging_init early, root cause of reboot loop on "checking module request" (and later first post-CR3 console/fb) was Limine response/module/file->address pointers + their backing pages (and fb MMIO access virt) not present in the new 4-level tables. Fixed with 4 GiB low identity + correct kernel_phys_base high alias + explicit pre-CR3 preserve using current_virt_to_phys + paging_map_page for the exact Limine vaddrs (module response, modules[], limine_file, the full OAR blob range, and fb access virt) + stack translate + CR4 pre + double CR3 + RIP reload post-CR0. FB now also uses proper preserve (real phys for the access virt) + MMIO flags instead of blind identity of captured value.
+- All Phase 1/2 preserved; incremental + always-buildable; old shell + new Phase2 cmds + 'tasks'/'run' + gui-demo all work; no console/shell removal.
+
+**Verification (exact)**:
+- make clean && make -j4   (builds, produces obsidia.iso)
+- make run   (or qemu directly with -cdrom obsidia.iso -serial stdio -drive obsidia_disk.img,if=ide -m 256)
+- Observe: "Starting kernel..." then "Paging enabled", no reboot/triple-fault loop, reaches shell prompt ">", "This is real now.", "Type something:"
+- In QEMU window: a demo window appears (gray bg + green rect). Arrow keys (while focused) move it. Compositor redraws.
+- Shell still works: help, tasks (shows kernel-idle + gui-demo), run hello_user.bin (prints via syscall, yields, exits), mounts, initrd, tmpfs_test, dispinfo, blkdevs, status, demo, etc.
+- All prior behavior preserved.
+
+See README.md for full command list and current progress bullets.
 - block_device_t abstraction + ramdisk (default) + ATA/PIO real backend (QEMU disk read)
 - PCI skeleton + scan
 - Disk image (obsidia_disk.img via make, run with -drive if=ide)

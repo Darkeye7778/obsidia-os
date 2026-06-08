@@ -5,12 +5,14 @@ static uint32_t* fb;
 static uint64_t fb_width;
 static uint64_t fb_height;
 static uint64_t fb_pitch;
+static uint64_t g_fb_phys_base = 0;
 
 void fb_init(uint32_t* addr, uint64_t width, uint64_t height, uint64_t pitch) {
     fb = addr;
     fb_width = width;
     fb_height = height;
     fb_pitch = pitch / 4;
+    g_fb_phys_base = (uint64_t)addr;
 }
 
 void fb_put_pixel(uint64_t x, uint64_t y, uint32_t color) {
@@ -60,4 +62,8 @@ void fb_get_info(uint64_t* width, uint64_t* height, uint64_t* pitch, uint32_t** 
     if (height) *height = fb_height;
     if (pitch) *pitch = fb_pitch * 4;  // bytes per line as original Limine pitch
     if (addr) *addr = fb;
+}
+
+uint64_t fb_get_phys_base(void) {
+    return g_fb_phys_base;
 }

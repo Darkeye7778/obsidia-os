@@ -40,7 +40,11 @@ OBJS = \
 	isr.o \
 	timer.o \
 	paging.o \
-	syscall.o
+	syscall.o \
+	gui_surface.o \
+	gui_window.o \
+	gui_compositor.o \
+	gui_events.o
 
 all: iso
 
@@ -124,6 +128,20 @@ mouse.o: kernel/drivers/mouse.c
 
 gdt.o: kernel/gdt.c
 	$(CC) $(CFLAGS) -c kernel/gdt.c -o gdt.o
+
+# Phase 3A GUI Foundations
+gui_surface.o: kernel/gui/surface.c
+	$(CC) $(CFLAGS) -c kernel/gui/surface.c -o gui_surface.o
+
+gui_window.o: kernel/gui/window.c
+	$(CC) $(CFLAGS) -c kernel/gui/window.c -o gui_window.o
+
+gui_compositor.o: kernel/gui/compositor.c
+	$(CC) $(CFLAGS) -c kernel/gui/compositor.c -o gui_compositor.o
+
+gui_events.o: kernel/gui/events.c
+	$(CC) $(CFLAGS) -c kernel/gui/events.c -o gui_events.o
+
 
 task.o: kernel/task.c
 	$(CC) $(CFLAGS) -c kernel/task.c -o task.o

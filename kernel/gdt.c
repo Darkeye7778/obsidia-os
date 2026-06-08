@@ -153,3 +153,27 @@ uint16_t gdt_get_kernel_data_selector(void) { return 0x10; }
 uint16_t gdt_get_user_code_selector(void)   { return 0x1B; }  // 0x18 | 3
 uint16_t gdt_get_user_data_selector(void)   { return 0x23; }  // 0x20 | 3
 uint16_t gdt_get_tss_selector(void)         { return 0x28; }
+
+void gdt_reload(void) {
+    __asm__ volatile ("lgdt %0" : : "m"(gdtr));
+
+    // reload data segments
+    __asm__ volatile (
+        "mov $0x10, %%ax\n"
+        "mov %%ax, %%ds\n"
+        "mov %%ax, %%es\n"
+        "mov %%ax, %%fs\n"
+        "mov %%ax, %%gs\n"
+        "mov %%ax, %%ss\n"
+        ::: "ax", "memory"
+    );
+
+    // reload CS
+    __asm__ volatile (
+        "push $0x08\n"
+        "push $1f\n"
+        "lretq\n"
+        "1:\n"
+        ::: "memory"
+    );
+}

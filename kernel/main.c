@@ -23,6 +23,10 @@
 #include "drivers/net.h"
 #include "drivers/audio.h"
 #include "drivers/mouse.h"
+#include "gui/surface.h"
+#include "gui/window.h"
+#include "gui/compositor.h"
+#include "gui/events.h"
 
 // ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
@@ -32,7 +36,7 @@ static volatile struct limine_framebuffer_request framebuffer_request = {
 };
 
 __attribute__((used, section(".limine_requests")))
-static volatile struct limine_module_request module_request = {
+volatile struct limine_module_request module_request = {
     .id = LIMINE_MODULE_REQUEST,
     .revision = 0
 };
@@ -50,7 +54,7 @@ static void serial_init(void) {
     outb(0x3F8 + 4, 0x0B);
 }
 
-static void serial_write(const char *str) {
+void serial_write(const char *str) {
     while (*str) {
         outb(0x3F8, *str++);
     }
@@ -59,6 +63,28 @@ static void serial_write(const char *str) {
 static void dummy_task(void) {
     for (;;) {
         task_yield();
+    }
+}
+
+// Phase 3A demo GUI task: creates a window, draws, handles some keyboard for movement via events.
+static void gui_demo_task(void) {
+    // Create a demo window
+    window_t* demo_win = gui_window_create(100, 100, 320, 200, "Obsidia Demo Window");
+    if (demo_win && demo_win->surface) {
+        gui_surface_clear(demo_win->surface, 0xFF303030);
+        gui_surface_fill_rect(demo_win->surface, 10, 30, 100, 50, 0xFF00AA00);
+        gui_surface_mark_dirty(demo_win->surface);
+    }
+
+    for (;;) {
+        // Process any pending GUI events (keys posted from main input)
+        gui_process_events();
+
+        // Composite all windows to display
+        gui_compositor_composite();
+        gui_compositor_present();
+
+        task_yield();  // cooperative
     }
 }
 
@@ -100,10 +126,10 @@ void kmain(void) {
     heap_init();
 
     gdt_init();  // must be early for proper segments / TSS before IDT/user code
+    paging_init();  // enable paging early so subsequent inits (IDT, timer, tasks, GUI) run under correct tables and avoid triple fault on transition
 
     if (module_request.response != NULL && module_request.response->module_count > 0) {
         struct limine_file *initrd = module_request.response->modules[0];
-
         initrd_set((uint64_t)initrd->address, initrd->size);
         vfs_init();
         vfs_mount_initrd_from((uint64_t)initrd->address, initrd->size);
@@ -115,7 +141,6 @@ void kmain(void) {
     idt_init();
     keyboard_init();
     timer_init();
-    paging_init();
     syscall_init();
     tasking_init();
     block_init();
@@ -130,9 +155,19 @@ void kmain(void) {
     audio_init();
     mouse_init();
 
+    // Phase 3A GUI Foundations
+    gui_surface_init();
+    gui_window_init();
+    gui_compositor_init();
+    gui_events_init();
+
     // Create a simple kernel thread so 'tasks' shows something immediately (cooperative)
     extern void dummy_task(void); // defined below
     task_create_kernel_thread(dummy_task, "kernel-idle");
+
+    // Demo GUI task (creates a test window, processes events, composites)
+    extern void gui_demo_task(void);
+    task_create_kernel_thread(gui_demo_task, "gui-demo");
 
     console_print("This is real now.\n\n");
 
@@ -162,6 +197,9 @@ void kmain(void) {
         }
 
         line_editor_handle_key(key);
+
+        // Phase 3A: also post key events to GUI event system for demo windows
+        gui_post_key_event(key, 1);  // key down (simplified)
     }
 }
 

@@ -8,3 +8,13 @@ int paging_map_page(uint64_t virt, uint64_t phys, uint64_t flags);
 
 // Get the physical address of the current PML4 (for CR3).
 uint64_t paging_get_cr3(void);
+
+// Preserve a virtual range by re-establishing the same virt->phys mapping from the
+// *current* (pre-switch) page tables into our new tables. Used to keep Limine
+// response/module pointers and data blobs accessible after CR3 switch.
+int paging_preserve_range(uint64_t vaddr, uint64_t size);
+
+// Preserve mappings for the module_request response + all loaded module file
+// data ranges so that post-paging accesses to module_request and initrd content
+// do not fault.
+void paging_preserve_limine_modules(void);
