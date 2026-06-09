@@ -65,6 +65,8 @@ make clean
 make run
 ```
 
+On boot you will see the shell prompt. A Phase 3A demo window (dark rect + blue focused title bar with "Obsidia Demo Window" text + bright green client area with colored boxes) is composited on screen. Arrow keys move the window; text that was underneath reappears when the window moves away (console cell refresh). When the window is moved partially off the left/top edge, only the visible portion renders cleanly (no trails, no transparent content holes). Normal typing and the full shell remain fully responsive and functional. All prior commands (help, tasks, run hello_user*.bin, vfs, ata, etc.) continue to work exactly as before.
+
 ---
 
 ## Development Workflow (Multiple Machines)
@@ -147,7 +149,8 @@ Phase 3A (v0.3.0-alpha): GUI Foundations (completed)
 - window_t + manager (create with surface, destroy, move, focus, visibility, list)
 - Events (queue, post key from input path, focus routing, process in gui tasks)
 - gui-demo kernel task (creates movable demo window, draws primitives, runs compositor + processes events on yields)
-- Full boot stability fix required for 3A: post-paging Limine module_request + initrd blob + fb access pointers now survive CR3 via explicit preserve (current_virt_to_phys + re-map same v->p before switch) + 4 GiB identity + corrected kernel high base + fb MMIO real-phys mapping. Removed all investigation DIAG spam; single "Paging enabled" milestone kept.
+- Full boot stability fix required for 3A: post-paging Limine module_request + initrd blob + fb access pointers now survive CR3 via explicit preserve (current_virt_to_phys + re-map same v->p before switch) + 4 GiB identity + corrected kernel high base + fb MMIO real-phys mapping. 
+- Final 3A stabilization: "Task failed to alloc kstack" (for dummy + gui-demo threads) due to 64 KiB initial heap arena. Bumped HEAP_INITIAL_PAGES to 256 (1 MiB). Cleaned leftover debug serial prints in gui code. Single "Paging enabled" + normal console messages.
 - All Phase 1/2 fully preserved (shell + every old/new command still works, no removal of console)
 - Verified (see below)
 
@@ -171,9 +174,10 @@ See ROADMAP.md for Phase 3B+ and the detailed 3A implementation + verification c
 8-9. Filesystem (VFS over OAR) + user program / syscall foundations - **Done**
 10. Phase 1: GDT/TSS + tasks + cooperative multitasking + userland loader + ring3 execution + expanded syscalls for user progs - **Done** (v0.1.0-alpha)
 11. Phase 2: Drivers & Real Storage (block dev, ATA+ramdisk, PCI skeleton, VFS write+ramfs, display abstraction, USB/net/audio/mouse skeletons, disk image, new shell cmds) - **Done** (v0.2.0-alpha)
-12. Phase 3A: GUI Foundations (surfaces + manager, compositor, window_t + manager, events, drawing primitives, gui task demo, userland GUI groundwork) + paging/Limine pointer survival fix for full boot to shell+demo - **Done** (v0.3.0-alpha)
-13+. Phase 3B Desktop Prototype, 3C Customization, etc. - See ROADMAP.md
-**Phase 3A GUI foundations complete (v0.3.0-alpha). The boot loop (module_request / fb post-CR3) is resolved. Desktop / full GUI can now be built on this layer as a proper task/process.**
+12. Phase 3A: GUI Foundations (surfaces + manager, compositor, window_t + manager, events, drawing primitives, gui task demo, userland GUI groundwork) + paging/Limine pointer survival + heap/kstack stabilization for runnable tasks - **Done** (v0.3.0-alpha)
+13+. Phase 3 — Rich Userland & Self-Hosting (started)
+- First step: userland C build (linker, syscall.h, Makefile rules, hello_user.c port). Old asm path + "run <prog>" + shell fully preserved. See ROADMAP.md for the Phase 3 items and current increment.
+**Phase 3A GUI foundations complete (v0.3.0-alpha). Phase 3 userland groundwork has begun. The base is ready for C user programs and moving the GUI experience into proper userland processes.**
 
 **Base OS is now ready for you to build the full GUI on top.**
 Key capabilities exposed for GUI work:

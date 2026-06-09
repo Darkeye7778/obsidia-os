@@ -11,3 +11,8 @@ void console_move_cursor_down();
 void console_set_edit_region_here();
 void console_clear_current_line_from_edit_start();
 void console_reset();
+
+// Force-redraw the console cells (from the internal screen buffer) in a
+// given pixel rectangle. This lets the demo window "uncover" shell/console
+// text when it moves away, without permanently losing the text underneath.
+void console_refresh_rect(int64_t x, int64_t y, uint64_t w, uint64_t h);

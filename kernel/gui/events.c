@@ -5,6 +5,18 @@
 
 void serial_write(const char *str);
 
+static void serial_print_u32_hex(uint32_t v) {
+    char buf[12];
+    buf[0] = '0';
+    buf[1] = 'x';
+    for (int i = 0; i < 8; i++) {
+        int d = (v >> ((7 - i) * 4)) & 0xF;
+        buf[2 + i] = (d < 10) ? ('0' + d) : ('A' + (d - 10));
+    }
+    buf[10] = 0;
+    serial_write(buf);
+}
+
 #define EVENT_QUEUE_SIZE 64
 
 static gui_event_t event_queue[EVENT_QUEUE_SIZE];
@@ -35,8 +47,12 @@ int gui_get_event(gui_event_t* out) {
 }
 
 void gui_process_events(void) {
+    serial_write("EVENTS: process_events got event\n");
     gui_event_t ev;
     while (gui_get_event(&ev)) {
+        serial_write("EVENTS: processing key=");
+        serial_print_u32_hex((uint32_t)ev.key);
+        serial_write("\n");
         window_t* target = gui_window_get_focused();
         if (target && ev.window_id && ev.window_id != target->id) {
             // find window by id if needed, for now route to focused
@@ -50,9 +66,6 @@ void gui_process_events(void) {
                 else if (ev.key == 1001 /*LEFT*/) gui_window_move(target, -10, 0);
                 else if (ev.key == 1002 /*RIGHT*/) gui_window_move(target, 10, 0);
             }
-            console_print("[GUI Event] Key event routed to window ");
-            // simple id print
-            console_print("\n");
         } else if (ev.type == EVENT_MOUSE_MOVE) {
             // Future: hit test for focus change
         }
@@ -60,12 +73,15 @@ void gui_process_events(void) {
 }
 
 void gui_post_key_event(int key, int down) {
-    serial_write("DIAG: entering gui_post_key_event\n");
+    serial_write("EVENTS: post_key_event key=");
+    serial_print_u32_hex((uint32_t)key);
+    serial_write("\n");
     gui_event_t ev = {0};
     ev.type = down ? EVENT_KEY_DOWN : EVENT_KEY_UP;
     ev.key = key;
     window_t* f = gui_window_get_focused();
     if (f) ev.window_id = f->id;
+    serial_write("EVENTS: post got focused, posting event\n");
     gui_post_event(&ev);
-    serial_write("DIAG: post_key_event done\n");
+    serial_write("EVENTS: post_event returned\n");
 }

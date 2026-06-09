@@ -240,3 +240,50 @@ void console_reset(void) {
 
     console_draw_cursor();
 }
+
+// Restore the console's logical text (from screen_chars) into a pixel rectangle.
+// This is used by the Phase 3A demo so that when the movable window is moved,
+// the shell/console text that was "underneath" it reappears instead of being
+// permanently lost (the window compositor draws directly on the fb).
+void console_refresh_rect(int64_t px, int64_t py, uint64_t pw, uint64_t ph) {
+    if (max_x == 0 || max_y == 0 || pw == 0 || ph == 0) return;
+
+    // Compute the visible on-screen portion of the rect (handles negative px/py
+    // when the window has moved off the left or top edge, which was causing
+    // trails because the old uint64 cast turned negatives into huge numbers
+    // that clamped to the wrong area and did no useful refresh).
+    int64_t vis_x = px;
+    int64_t vis_y = py;
+    uint64_t vis_w = pw;
+    uint64_t vis_h = ph;
+
+    if (vis_x < 0) {
+        if ((uint64_t)(-vis_x) >= vis_w) return; // entirely off left
+        vis_w -= (uint64_t)(-vis_x);
+        vis_x = 0;
+    }
+    if (vis_y < 0) {
+        if ((uint64_t)(-vis_y) >= vis_h) return; // entirely off top
+        vis_h -= (uint64_t)(-vis_y);
+        vis_y = 0;
+    }
+
+    // Now convert visible rect to cells and clamp to console bounds
+    uint64_t col_start = (uint64_t)vis_x / FONT_WIDTH;
+    uint64_t row_start = (uint64_t)vis_y / FONT_HEIGHT;
+    uint64_t col_end   = ((uint64_t)vis_x + vis_w + FONT_WIDTH - 1) / FONT_WIDTH;
+    uint64_t row_end   = ((uint64_t)vis_y + vis_h + FONT_HEIGHT - 1) / FONT_HEIGHT;
+
+    if (col_start > max_x) col_start = max_x;
+    if (row_start > max_y) row_start = max_y;
+    if (col_end   > max_x) col_end   = max_x;
+    if (row_end   > max_y) row_end   = max_y;
+
+    for (uint64_t r = row_start; r < row_end; r++) {
+        for (uint64_t c = col_start; c < col_end; c++) {
+            // Redraw using the "normal" console text colors.
+            // This restores the original character that was at that cell.
+            console_draw_cell(c, r, 0x00FFFFFF, 0x00202020);
+        }
+    }
+}

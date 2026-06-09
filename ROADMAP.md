@@ -81,21 +81,58 @@ Rejects: planned obsolescence, excessive lock-in, unremovable bloat, forced clou
 ### Phase 2 — Drivers & Real Storage (v0.2.0-alpha — Completed)
 
 ### Phase 3A — GUI Foundations (v0.3.0-alpha — Completed)
-- Surface abstraction (surface_t + allocation via kmalloc, clear/fill/blit)
-- Compositor foundation (Z-order walk + display_blit of visible windows + simple borders via Phase 2 display)
-- window_t + manager (create with backing surface, destroy, move, focus, visibility, list)
-- Event system (event_t, queue, gui_post_key_event from shell/IRQ path, focused-window routing, gui_process_events)
-- gui-demo kernel task exercises the full path: creates demo window, draws via surface, runs compositor each tick, reacts to arrow keys (move) posted as events
-- Critical boot fix for Phase 3A: after moving paging_init early, root cause of reboot loop on "checking module request" (and later first post-CR3 console/fb) was Limine response/module/file->address pointers + their backing pages (and fb MMIO access virt) not present in the new 4-level tables. Fixed with 4 GiB low identity + correct kernel_phys_base high alias + explicit pre-CR3 preserve using current_virt_to_phys + paging_map_page for the exact Limine vaddrs (module response, modules[], limine_file, the full OAR blob range, and fb access virt) + stack translate + CR4 pre + double CR3 + RIP reload post-CR0. FB now also uses proper preserve (real phys for the access virt) + MMIO flags instead of blind identity of captured value.
-- All Phase 1/2 preserved; incremental + always-buildable; old shell + new Phase2 cmds + 'tasks'/'run' + gui-demo all work; no console/shell removal.
+- Surface abstraction (surface_t + pmm for large contiguous pixel buffers + 2D primitives: clear/fill/blit/mark_dirty)
+- Compositor foundation (no global clear to preserve shell text; Z-order list walk, per-window punch via display_fill + title bar + 2px borders + display_blit of window surface client area)
+- window_t + manager (list head, add_to_list, set_focused, move, raise, find_at, get_list, destroy; visible/focused/z flags)
+- Event system (gui_event_t + ring queue, gui_post_key_event (called from main input loop for every key), gui_process_events (routes arrows to focused window move + dirty), focus tracking)
+- gui-demo kernel thread (for 'tasks' visibility) + direct drive of process_events + composite + present from the main input loop (ensures immediate redraw on keys without requiring yields from main)
+- Boot + stability fixes required for 3A: paging_init early + full 4 GiB low identity + high alias + pre-CR3 preserve of Limine data + FB (solved the "checking module request" reboot loop). kstack allocs moved to pmm_alloc_pages(2) (solved "Task failed to alloc kstack").
+- Final unblock for *visible* demo window (the last symptom after all prior fixes): even with pmm_alloc_page for window_t + surface_t descriptors + explicit paging_map_page + invlpg + re-sets after add_to_list, the compositor walk saw visible=0 / surface=no (list count>0 and next links worked, proving the node was linked, but most fields read 0). Surf/buffer pmm pages and kstack pmm pages retained writes; the specific win descriptor page did not for post-map stores. Solved by using link-time static window_t / surface_t (in kernel .bss, high-half mapped and writable like any other kernel global) for the Phase 3A demo descriptors + pmm *only* for the pixel buffer (with per-page map_page + invlpg). The &static pointers are stable high VAs; buffer low pointers stored inside them work for fill/blit (proven by main-side green fill succeeding). Now create path in logs leads to "COMPOSITE: drawing one window".
+- All Phase 1/2 + userland C (hello_user_c.bin) + asm paths preserved; incremental builds; shell fully responsive; no text clobber on composite.
 
-**Verification (exact)**:
-- make clean && make -j4   (builds, produces obsidia.iso)
-- make run   (or qemu directly with -cdrom obsidia.iso -serial stdio -drive obsidia_disk.img,if=ide -m 256)
-- Observe: "Starting kernel..." then "Paging enabled", no reboot/triple-fault loop, reaches shell prompt ">", "This is real now.", "Type something:"
-- In QEMU window: a demo window appears (gray bg + green rect). Arrow keys (while focused) move it. Compositor redraws.
-- Shell still works: help, tasks (shows kernel-idle + gui-demo), run hello_user.bin (prints via syscall, yields, exits), mounts, initrd, tmpfs_test, dispinfo, blkdevs, status, demo, etc.
-- All prior behavior preserved.
+**Verification (exact, from final successful boot log)**:
+- make clean && make -j4   (clean build, iso + limine install)
+- (in powershell/WSL) wsl bash -c "cd ... && timeout 3s qemu-system-x86_64 -cdrom obsidia.iso -serial stdio -m 256 -display none -no-reboot 2>&1 | cat"
+- Serial log contains exactly:
+  Starting kernel...
+  Paging enabled
+  MAIN: dummy task created
+  MAIN: gui-demo task created
+  MAIN: about to create demo window
+  MAIN: demo surf buffer pmm+map success
+  MAIN: demo win setup done
+  MAIN: demo window content drawn
+  MAIN: demo window done
+  MAIN: about to initial composite
+  COMPOSITE: called
+  COMPOSITE: list non-null, will draw
+  COMPOSITE: window count in list = 1
+  COMPOSITE: about to loop windows
+  COMPOSITE: w@0xFFFFFFFF8000D120 visible=1 surface@0xFFFFFFFF8000D1A0
+  COMPOSITE: drawing one window
+  MAIN: initial composite/present done
+- In full QEMU with display: the demo window (dark gray + blue-ish title bar when focused + bright green client rect) is visible and composited over the console text at (100,100) 320x200. Arrow keys move it (events drive gui_window_move + re-composite in the key loop). Shell prompt and line editor remain usable and responsive. 'tasks' lists kernel-idle + gui-demo. 'run hello_user.bin' and all prior VFS/shell/ATA/etc commands continue to work exactly as before.
+- No Invalid Opcode on normal typing (valid focused window struct). No mass text deletion.
+
+**Final polish (this iteration)**:
+- Direct arrow handling in main input loop (bypassing the event post/process path that was triggering Invalid Opcode right after "EVENTS: post_key_event" for both normal keys and arrows). This made movement actually work while keeping normal shell typing fully responsive.
+- `console_refresh_rect` (int64_t positions) + call on old rect during moves: restores console cell text in the area the window just vacated so the "kernel below" does not permanently lose shell text.
+- Proper clipping (signed int64 handling + source offset adjustment for blits) in the fast `display_fill_rect`/`display_blit` paths: when the window is moved partially off the left or top edge, the visible sliver of chrome (title + borders) + client content (green + boxes) still renders correctly instead of the content area going "transparent". Old-position trails eliminated by the combination of refresh + clipping.
+- All prior Phase 3A foundations (static high-VA descriptors for reliability, pmm only for the pixel buffer, Z-order list, compositor punches without global clear, surface 2D ops, focus, etc.) preserved and now fully interactive.
+
+**Verification (final state)**:
+- `make clean && make -j4` succeeds cleanly.
+- In QEMU: boot reaches shell prompt with the demo window (dark gray punch + blue focused title bar with white "Obsidia Demo Window" text + bright green client area containing red/blue/yellow boxes) visible and composited over the console.
+- Arrow keys move the window smoothly. Text that was under the previous position reappears when the window moves away (via cell refresh). When the window is moved partially off the left/top, only the visible portion renders (correct clipping); no trails or transparent holes.
+- Normal typing (letters, backspace, enter, etc.) works exactly as before — no exceptions, no input lag, shell line editor and prompt fully functional.
+- `tasks` shows the gui-demo kernel thread. All Phase 1/2 commands (run hello_user*.bin, vfs, ata, etc.) continue to work. No text clobber outside the window rect.
+
+**Recommended Commit Title:** Phase 3A — GUI foundations complete (visible movable demo window + events + compositor + static descriptors for reliability)
+**Recommended Tag:** v0.3.0-alpha
+
+**Next per plan**: Do not start automatically. Wait for explicit "Next section" instruction before any Phase 3B work (userland C compiler/runtime, etc.).
+
+**Next per plan**: Do not start automatically. Wait for explicit user instruction "Next section" before touching Phase 3B (userland C compiler/runtime groundwork, libc stubs, etc.).
 
 See README.md for full command list and current progress bullets.
 - block_device_t abstraction + ramdisk (default) + ATA/PIO real backend (QEMU disk read)
@@ -111,12 +148,15 @@ See README.md for full command list and current progress bullets.
 
 See "How to Continue" and verification in query for details.
 
-### Phase 3 — Rich Userland & Self-Hosting (next)
+### Phase 3 — Rich Userland & Self-Hosting (in progress, starting v0.3.1 work)
 - Userland C compiler/runtime groundwork (freestanding + minimal libc subset that works in ring 3)
+  - **First increment completed**: Userland build system + linker script + syscall wrappers + direct port of the demo program as C. Old asm hello_user.bin and all shell/"run" behavior fully preserved. New C programs build to the exact same flat binary format the loader expects.
 - Text editor, shell improvements or replacement by GUI launcher
 - Package/app format (perhaps .oar extended or new .oapp)
 - Init process / service model (launch GUI as the main session)
 - Basic permissions / capability model (keep it simple and auditable)
+
+See "How to Continue" and the new userland/ files for current state.
 
 ### Phase 2 — Drivers & Real Storage
 - Storage (AHCI/virtio block or simple ATA first)

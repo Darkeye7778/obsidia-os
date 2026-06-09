@@ -64,11 +64,14 @@ task_t* task_create_kernel_thread(void (*entry)(void), const char* name) {
     for (; name && name[i] && i < TASK_NAME_LEN-1; i++) t->name[i] = name[i];
     t->name[i] = 0;
 
-    // Allocate kernel stack (use heap pages for now)
+    // Allocate kernel stack directly from PMM (needs contiguous low pages for the stack range)
     t->kstack_size = 4096 * 2; // 8KiB
-    t->kstack_base = (uint64_t)kmalloc(t->kstack_size);
+    t->kstack_base = (uint64_t)pmm_alloc_pages(2);
     if (!t->kstack_base) {
         console_print("TASK: failed to alloc kstack\n");
+        console_print("  free_pages=");
+        memory_print_dec(memory_get_free_pages());
+        console_print("\n");
         t->state = TASK_ZOMBIE;
         return 0;
     }
@@ -124,8 +127,12 @@ task_t* task_create_user_thread(uint64_t entry_point, uint64_t ustack_top, const
 
     // Kernel stack for when this task traps into kernel (syscalls, IRQs)
     t->kstack_size = 4096 * 2;
-    t->kstack_base = (uint64_t)kmalloc(t->kstack_size);
+    t->kstack_base = (uint64_t)pmm_alloc_pages(2);
     if (!t->kstack_base) {
+        console_print("TASK: failed to alloc kstack (user thread)\n");
+        console_print("  free_pages=");
+        memory_print_dec(memory_get_free_pages());
+        console_print("\n");
         t->state = TASK_ZOMBIE;
         return 0;
     }

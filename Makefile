@@ -46,7 +46,7 @@ OBJS = \
 	gui_compositor.o \
 	gui_events.o
 
-all: iso
+all: build
 
 $(LIMINE_DIR):
 	git clone https://github.com/limine-bootloader/limine.git --branch v7.x-binary --depth=1 $(LIMINE_DIR)
@@ -149,10 +149,24 @@ task.o: kernel/task.c
 context.o: kernel/context.asm
 	nasm -f elf64 kernel/context.asm -o context.o
 
-$(KERNEL): $(OBJS)
+$(KERNEL): $(OBJS) userland/hello_user.bin
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)
 
-iso: $(LIMINE_DIR) $(KERNEL)
+$(INITRD): initrd/hello_user.bin
+	python3 build_oar.py initrd $(INITRD)
+
+iso: $(LIMINE_DIR) $(KERNEL) $(INITRD)
+	# Ensure limine bootloader files are in place (self-contained clean build)
+	mkdir -p iso/boot/limine
+	cp $(LIMINE_DIR)/limine-bios-cd.bin iso/boot/limine/
+	cp $(LIMINE_DIR)/limine-bios.sys iso/boot/limine/
+	cp $(LIMINE_DIR)/limine-uefi-cd.bin iso/boot/limine/
+	# Generate clean limine.cfg (no debug hacks that can break module loading)
+	printf '%s\n' 'TIMEOUT=0' '' ':Obsidia OS' '    PROTOCOL=limine' '    KERNEL_PATH=boot:///boot/kernel.elf' '    MODULE_PATH=boot:///boot/initrd.oar' '    MODULE_CMDLINE=initrd.oar' '    RESOLUTION=1280x720' > iso/boot/limine/limine.cfg
+	# Always (re)pack the initrd from current contents of initrd/ directory.
+	# This ensures "make clean && make run" (or any iso build) automatically
+	# includes the latest hello_user.bin etc. without any manual python step.
+	python3 build_oar.py initrd $(INITRD)
 	cp $(KERNEL) iso/boot/kernel.elf
 	cp $(INITRD) iso/boot/
 	xorriso -as mkisofs \
@@ -166,7 +180,7 @@ iso: $(LIMINE_DIR) $(KERNEL)
 		iso
 	$(LIMINE_BIN) bios-install $(ISO)
 
-run: iso
+run: iso obsidia_disk.img
 	qemu-system-x86_64 -cdrom $(ISO) -serial stdio -drive file=obsidia_disk.img,format=raw,if=ide -m 256
 
 # Create a small test disk image for ATA/PIO testing (10MB raw)
@@ -177,7 +191,9 @@ obsidia_disk.img:
 clean:
 	rm -f *.o $(KERNEL) $(ISO)
 	rm -f userland/*.bin initrd/hello_user.bin
+	rm -f $(INITRD)
 	rm -f obsidia_disk.img
+	# Note: source iso/ structure (for limine files) is preserved for self-contained builds; build will repopulate needed files from limine clone.
 
 userland/hello_user.bin: userland/hello_user.asm
 	nasm -f bin -o $@ $<
@@ -186,5 +202,43 @@ initrd/hello_user.bin: userland/hello_user.bin
 	cp $< $@
 
 programs: userland/hello_user.bin initrd/hello_user.bin
-	@echo "User program prepared in initrd/. Run: python3 build_oar.py initrd initrd.oar && make"
+	@echo "User program prepared in initrd/. The next 'make' (or 'make iso') will automatically re-pack initrd.oar"
+
+# ===== Userland C support (Phase 3 groundwork) =====
+# Flat binaries for ring 3, using the same loader base (0x400000).
+# Preserves the existing .asm hello_user.bin exactly.
+# Build a C program with: make userland/hello_user_c.bin
+# Then copy to initrd/ and rebuild oar to test with "run hello_user_c.bin" (or overwrite hello_user.bin for drop-in).
+
+USER_CC      = gcc
+USER_CFLAGS  = -ffreestanding -m64 -mcmodel=large -mno-red-zone -fno-pic -fno-pie \
+               -nostdlib -nostdinc -Iuserland -Wall -Wextra -O2
+USER_LD      = ld
+USER_LDFLAGS = -T userland/user.ld -nostdlib
+
+# .c -> .bin (via temp ELF then strip to raw binary)
+userland/%.bin: userland/%.c userland/user.ld
+	$(USER_CC) $(USER_CFLAGS) -c $< -o $(@:.bin=.tmp.o)
+	$(USER_LD) $(USER_LDFLAGS) $(@:.bin=.tmp.o) -o $(@:.bin=.tmp.elf)
+	objcopy -O binary $(@:.bin=.tmp.elf) $@
+	rm -f $(@:.bin=.tmp.o) $(@:.bin=.tmp.elf)
+
+# Convenience: build the C version of the demo
+userland/hello_user_c.bin: userland/hello_user_c.c
+
+# Copy rule (user can do manually or extend)
+initrd/hello_user_c.bin: userland/hello_user_c.bin
+	cp $< $@
+
+.PHONY: user-c-programs
+user-c-programs: userland/hello_user_c.bin
+	@echo "C user program built: userland/hello_user_c.bin"
+	@echo "To test: cp userland/hello_user_c.bin initrd/hello_user.bin && make run  (auto re-packs initrd.oar)"
+	@echo "(overwrites the asm one for testing; original asm rule still available)"
+
+.PHONY: build
+build: iso
+	@echo "Build complete (kernel + fresh initrd.oar + ISO). Use 'make run' to test."
+	@echo "Workflow: make clean && make build && make run"
+	@echo "(make build ensures initrd.oar is packed from current initrd/ contents and ISO is ready)"
 

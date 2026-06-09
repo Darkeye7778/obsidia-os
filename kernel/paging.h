@@ -18,3 +18,7 @@ int paging_preserve_range(uint64_t vaddr, uint64_t size);
 // data ranges so that post-paging accesses to module_request and initrd content
 // do not fault.
 void paging_preserve_limine_modules(void);
+
+// Invalidate TLB entry for a page (to ensure writes to a late-allocated pmm page
+// are visible after identity mapping).
+void paging_invlpg(uint64_t addr);

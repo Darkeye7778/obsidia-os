@@ -2,7 +2,11 @@
 #include "../drivers/framebuffer.h"  // for font primitives if needed
 #include "../console/console.h"
 #include "../memory/heap.h"
+#include "../memory/memory.h"
+#include "../paging.h"
 #include <stdint.h>
+
+void serial_write(const char *str);
 
 static uint32_t next_surface_id = 1;
 
@@ -11,22 +15,39 @@ void gui_surface_init(void) {
 }
 
 surface_t* gui_surface_create(uint64_t width, uint64_t height) {
+    serial_write("SURFACE: create enter\n");
     if (width == 0 || height == 0) return 0;
 
-    surface_t* s = (surface_t*)kmalloc(sizeof(surface_t));
-    if (!s) return 0;
+    // pmm for descriptor (single page, always "contiguous")
+    surface_t* s = (surface_t*)pmm_alloc_page();
+    if (!s) {
+        serial_write("SURFACE: pmm struct failed\n");
+        return 0;
+    }
+    for (uint64_t i = 0; i < sizeof(surface_t); i++) ((uint8_t*)s)[i] = 0;
 
     uint64_t buf_size = width * height * sizeof(uint32_t);
-    s->buffer = (uint32_t*)kmalloc(buf_size);
-    if (!s->buffer) {
-        // kfree(s);
+    uint64_t pages = (buf_size + 4095ULL) / 4096ULL;
+    uint32_t* buf = (uint32_t*)pmm_alloc_pages(pages);
+    if (!buf) {
+        serial_write("SURFACE: pmm buffer failed\n");
+        pmm_free_page(s);
         return 0;
+    }
+    s->buffer = buf;
+    serial_write("SURFACE: pmm success\n");
+
+    // Ensure identity mapping for this late pmm page (defensive vs pre-map coverage)
+    paging_map_page((uint64_t)s, (uint64_t)s, 3);
+    for (uint64_t off = 0; off < pages; off++) {
+        uint64_t pa = (uint64_t)buf + off * 4096ULL;
+        paging_map_page(pa, pa, 3);
     }
 
     s->id = next_surface_id++;
     s->width = width;
     s->height = height;
-    s->pitch = width * sizeof(uint32_t);
+    s->pitch = width;  // in pixels for our blit indexing
     s->dirty = 1;
 
     // Clear to black
@@ -34,15 +55,14 @@ surface_t* gui_surface_create(uint64_t width, uint64_t height) {
         s->buffer[i] = 0xFF000000; // opaque black
     }
 
+    serial_write("SURFACE: about to return s\n");
     return s;
 }
 
 void gui_surface_destroy(surface_t* surf) {
     if (!surf) return;
-    if (surf->buffer) {
-        // kfree(surf->buffer);
-    }
-    // kfree(surf);
+    // For Phase 3A we leak the pmm page(s) for descriptor + buffer (simple, no size tracking needed for buffers).
+    // pmm_free_page(surf);  // would be correct if we want to reclaim the descriptor page
 }
 
 uint32_t* gui_surface_get_buffer(surface_t* surf) {

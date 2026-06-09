@@ -29,3 +29,7 @@ window_t* gui_window_find_at(int x, int y);
 // For compositor
 window_t* gui_window_get_list(void);  // head of list (Z order managed by list)
 void gui_window_raise(window_t* win); // bring to front
+
+// Helpers for manual window setup (bypass create if needed)
+void gui_window_add_to_list(window_t* win);
+void gui_window_set_focused(window_t* win);

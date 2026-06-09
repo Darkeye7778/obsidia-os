@@ -3,7 +3,7 @@
 #include "../console/console.h"
 
 #define PAGE_SIZE 4096
-#define HEAP_INITIAL_PAGES 256  // 1 MiB initial arena. Enough for kstacks (8KiB each), VFS nodes, ramfs, and Phase 3A GUI surfaces (e.g. 320x200x4 ~256KiB) without relying on expand for early allocs. The early pmm allocs at heap_init time are consecutive low pages, so the single big block claim is valid.
+#define HEAP_INITIAL_PAGES 4096  // ~16 MiB initial arena. GUI descriptors now use kmalloc; plenty of headroom after moving kstacks and surface buffers to pmm. Reduces fragmentation for small allocs at boot.
 #define HEAP_ALIGN 16
 #define BLOCK_MAGIC 0xA11C0C0AULL
 

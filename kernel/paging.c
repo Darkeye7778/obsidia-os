@@ -73,6 +73,10 @@ static inline void invlpg(uint64_t addr) {
     __asm__ volatile ("invlpg (%0)" : : "r"(addr) : "memory");
 }
 
+void paging_invlpg(uint64_t addr) {
+    invlpg(addr);
+}
+
 int paging_map_page(uint64_t virt, uint64_t phys, uint64_t flags) {
     if (!pml4) return 0;
 
