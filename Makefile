@@ -162,7 +162,7 @@ iso: $(LIMINE_DIR) $(KERNEL) $(INITRD)
 	cp $(LIMINE_DIR)/limine-bios.sys iso/boot/limine/
 	cp $(LIMINE_DIR)/limine-uefi-cd.bin iso/boot/limine/
 	# Generate clean limine.cfg (no debug hacks that can break module loading)
-	printf '%s\n' 'TIMEOUT=0' '' ':Obsidia OS' '    PROTOCOL=limine' '    KERNEL_PATH=boot:///boot/kernel.elf' '    MODULE_PATH=boot:///boot/initrd.oar' '    MODULE_CMDLINE=initrd.oar' '    RESOLUTION=1280x720' > iso/boot/limine/limine.cfg
+	printf '%s\n' 'TIMEOUT=0' '' ':Obsidia OS' '    PROTOCOL=limine' '    KERNEL_PATH=boot:///boot/kernel.elf' '    MODULE_PATH=boot:///boot/initrd.oar' '    MODULE_STRING=initrd.oar' '    RESOLUTION=1280x720' > iso/boot/limine/limine.cfg
 	# Always (re)pack the initrd from current contents of initrd/ directory.
 	# This ensures "make clean && make run" (or any iso build) automatically
 	# includes the latest hello_user.bin etc. without any manual python step.

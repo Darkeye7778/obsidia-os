@@ -12,6 +12,48 @@
 #define OAR_TYPE_FILE 1
 #define OAR_TYPE_DIR  2
 
+extern void serial_write(const char* s);
+
+static void serial_write_hex8(uint8_t v) {
+    const char* h = "0123456789ABCDEF";
+    char out[3];
+    out[0] = h[(v >> 4) & 0xF];
+    out[1] = h[v & 0xF];
+    out[2] = 0;
+    serial_write(out);
+}
+
+static void serial_write_u64(uint64_t value) {
+    char buf[21];
+    int i = 20;
+    buf[i] = '\0';
+
+    if (value == 0) {
+        serial_write("0");
+        return;
+    }
+
+    while (value > 0 && i > 0) {
+        buf[--i] = '0' + (value % 10);
+        value /= 10;
+    }
+
+    serial_write(&buf[i]);
+}
+
+static void serial_write_hex64(uint64_t value) {
+    const char* hex = "0123456789ABCDEF";
+    serial_write("0x");
+
+    for (int i = 60; i >= 0; i -= 4) {
+        uint8_t nibble = (value >> i) & 0xF;
+        char c[2];
+        c[0] = hex[nibble];
+        c[1] = '\0';
+        serial_write(c);
+    }
+}
+
 typedef struct __attribute__((packed)) {
     char magic[4];
     uint32_t version;
@@ -76,27 +118,66 @@ static void add_child(vfs_node_t* parent, vfs_node_t* child) {
 }
 
 int vfs_mount_initrd_from(uint64_t raw_addr, uint64_t raw_size) {
-    if (!raw_addr || !raw_size || vfs_mounted) return 0;
+    serial_write("VFS mount: raw_addr=");
+    serial_write("present");
+    serial_write(" raw_size=");
+    serial_write("present\n");
 
-    oar_header_t* header = (oar_header_t*)raw_addr;
-    if (!oar_valid(header)) {
-        console_print("VFS: Invalid OAR header\n");
+    if (!raw_addr || !raw_size) {
+        serial_write("VFS mount fail: missing addr/size\n");
         return 0;
     }
 
-    vfs_root = create_node("/", VFS_DIR, 0, 0, &initrd_ops, 0);
-    if (!vfs_root) return 0;
+    if (vfs_mounted) {
+        serial_write("VFS mount fail: already mounted\n");
+        return 0;
+    }
 
+    oar_header_t* header = (oar_header_t*)raw_addr;
+
+    serial_write("OAR magic bytes: ");
+    serial_write_hex8((uint8_t)header->magic[0]); serial_write(" ");
+    serial_write_hex8((uint8_t)header->magic[1]); serial_write(" ");
+    serial_write_hex8((uint8_t)header->magic[2]); serial_write(" ");
+    serial_write_hex8((uint8_t)header->magic[3]); serial_write("\n");
+
+    if (!oar_valid(header)) {
+        serial_write("VFS mount fail: invalid OAR header\n");
+        console_print("VFS: Invalid OAR header\n");
+        return 0;
+    }
+    serial_write("VFS: OAR valid\n");
+    serial_write("VFS: file count=");
+    serial_write_u64(header->file_count);
+    serial_write("\n");
+    
+    vfs_root = create_node("/", VFS_DIR, 0, 0, &initrd_ops, 0);
+
+    if (!vfs_root) {
+        serial_write("VFS FAIL: could not allocate root node\n");
+        return 0;
+    }
+    
+    serial_write("VFS: root node created\n");
+    
     uint8_t* ptr = (uint8_t*)raw_addr + sizeof(oar_header_t);
+
+    serial_write("VFS: starting entry parse\n");
 
     for (uint32_t i = 0; i < header->file_count; i++) {
         oar_entry_t* entry = (oar_entry_t*)ptr;
+
+        serial_write("VFS: found entry\n");
+
         ptr += sizeof(oar_entry_t);
 
         char namebuf[128];
         uint32_t nl = entry->name_len; if (nl >= 127) nl=127;
         for (uint32_t j=0; j<nl; j++) namebuf[j] = ((char*)ptr)[j];
         namebuf[nl] = 0;
+        serial_write("VFS entry name: ");
+        serial_write(namebuf);
+        serial_write("\n");
         ptr += entry->name_len;
 
         uint8_t* content = ptr;
@@ -107,6 +188,14 @@ int vfs_mount_initrd_from(uint64_t raw_addr, uint64_t raw_size) {
 
         ptr += entry->size;
         ptr = (uint8_t*)raw_addr + align8((uint64_t)(ptr - (uint8_t*)raw_addr));
+
+        serial_write("vfs_root ptr=");
+        serial_write_hex64((uint64_t)vfs_root);
+        serial_write("\n");
+        
+        serial_write("first child ptr=");
+        serial_write_hex64((uint64_t)vfs_root->children);
+        serial_write("\n");
     }
 
     vfs_mounted = 1;

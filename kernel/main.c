@@ -28,6 +28,7 @@
 #include "gui/compositor.h"
 #include "gui/events.h"
 
+
 // ===== LIMINE FRAMEBUFFER REQUEST =====
 __attribute__((used, section(".limine_requests")))
 static volatile struct limine_framebuffer_request framebuffer_request = {
@@ -69,6 +70,19 @@ static void serial_print_u32_hex(uint32_t v) {
     }
 }
 
+static void serial_write_hex64(uint64_t value) {
+    const char* hex = "0123456789ABCDEF";
+    serial_write("0x");
+
+    for (int i = 60; i >= 0; i -= 4) {
+        uint8_t nibble = (value >> i) & 0xF;
+        char c[2];
+        c[0] = hex[nibble];
+        c[1] = '\0';
+        serial_write(c);
+    }
+}
+
 static void dummy_task(void) {
     for (;;) {
         task_yield();
@@ -81,13 +95,31 @@ static void gui_demo_task(void) {
     for (;;) {
         // Process any pending GUI events (keys posted from main input)
         gui_process_events();
-
+        
         // Composite all windows to display
         gui_compositor_composite();
         gui_compositor_present();
-
+        
         task_yield();  // cooperative
     }
+}
+
+static void serial_write_u64(uint64_t value) {
+    char buf[21];
+    int i = 20;
+    buf[i] = '\0';
+
+    if (value == 0) {
+        serial_write("0");
+        return;
+    }
+
+    while (value > 0 && i > 0) {
+        buf[--i] = '0' + (value % 10);
+        value /= 10;
+    }
+
+    serial_write(&buf[i]);
 }
 
 // ===== KERNEL ENTRY =====
@@ -128,27 +160,45 @@ void kmain(void) {
     heap_init();
 
     gdt_init();  // must be early for proper segments / TSS before IDT/user code
-    paging_init();  // enable paging early so subsequent inits (IDT, timer, tasks, GUI) run under correct tables and avoid triple fault on transition
-
+    
+    vfs_init();
+    
     serial_write("Checking module request...\n");
+    
     if (module_request.response != NULL) {
         serial_write("Module response present, count=");
-        memory_print_dec(module_request.response->module_count);
+        serial_write_u64(module_request.response->module_count);
         serial_write("\n");
     } else {
         serial_write("Module response NULL\n");
     }
-
+    
     if (module_request.response != NULL && module_request.response->module_count > 0) {
         struct limine_file *initrd = module_request.response->modules[0];
+        
         initrd_set((uint64_t)initrd->address, initrd->size);
-        vfs_init();
-        vfs_mount_initrd_from((uint64_t)initrd->address, initrd->size);
-        // mount ramfs for writable runtime files (Phase 2)
-        extern int vfs_mount_ramfs(const char* path);
-        vfs_mount_ramfs("/tmp");
+        
+        int ok = vfs_mount_initrd_from((uint64_t)initrd->address, initrd->size);
+        serial_write(ok ? "VFS initrd mount OK\n" : "VFS initrd mount FAILED\n");
+        
+        if (ok) {
+            console_print("VFS initrd mounted.\n");
+        } else {
+            console_print("VFS initrd mount failed.\n");
+        }
+    } else {
+        console_print("No Limine initrd module found.\n");
     }
-
+    
+    extern int vfs_mount_ramfs(const char* path);
+    vfs_mount_ramfs("/tmp");
+    
+    paging_init();  // enable paging early so subsequent inits (IDT, timer, tasks, GUI) run under correct tables and avoid triple fault on transition
+    
+    serial_write("after paging vfs_root ptr=");
+    serial_write_hex64((uint64_t)vfs_get_root());
+    serial_write("\n");
+    
     idt_init();
     keyboard_init();
     timer_init();
