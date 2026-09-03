@@ -9,6 +9,13 @@ void syscall_init(void);
 #define SYS_GETTICKS 2
 #define SYS_YIELD    3
 #define SYS_FBINFO   4   // returns fb width/height/pitch/addr in a struct via user pointer
+#define SYS_FD_READ  5
+#define SYS_FD_WRITE 6
+#define SYS_OPEN     7
+#define SYS_CLOSE    8
+#define SYS_SLEEP    9
+#define SYS_SPAWN    10
+#define SYS_WAIT     11
 
 // Simple fb info struct for user
 typedef struct {

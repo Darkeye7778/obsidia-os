@@ -29,6 +29,7 @@ isr_common:
     ; Pass pointer to the saved state on stack (the registers_t starts at [rsp] after pushes)
     mov rdi, rsp
     call isr_handler
+    mov rsp, rax
 
     ; Restore
     pop r15
@@ -137,4 +138,5 @@ isr_stub_table:
     dq isr40, isr41, isr42, isr43, isr44, isr45, isr46, isr47
     ; pad up to 128 for now (others can be added)
     times (128 - 48) dq isr128   ; default to syscall stub for higher for simplicity in table
+    dq isr128                     ; vector 128 itself
     ; (real code only installs up to 47 + 128 specially)

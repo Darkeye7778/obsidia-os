@@ -5,19 +5,6 @@
 #include "../drivers/framebuffer.h"
 #include <stdint.h>
 
-void serial_write(const char *str);
-
-static void serial_print_hex64(uint64_t v) {
-    char buf[20];
-    buf[0] = '0'; buf[1] = 'x';
-    for (int i = 0; i < 16; i++) {
-        int d = (v >> ((15 - i) * 4)) & 0xF;
-        buf[2 + i] = (d < 10) ? ('0' + d) : ('A' + (d - 10));
-    }
-    buf[18] = 0;
-    serial_write(buf);
-}
-
 static display_info_t disp_info;
 
 void gui_compositor_init(void) {
@@ -37,35 +24,9 @@ void gui_compositor_composite(void) {
     // Traverse from back (end of list) to front would be ideal, but simple list: draw in reverse order by collecting or just draw and let z be managed by caller.
     // For now: draw in list order (head on top will overdraw).
 
-    serial_write("COMPOSITE: called\n");
     window_t* w = gui_window_get_list();
-    if (w) serial_write("COMPOSITE: list non-null, will draw\n");
-    else serial_write("COMPOSITE: list NULL, no windows!\n");
-    int win_count = 0;
-    window_t* ww = w;
-    while (ww) { win_count++; ww = ww->next; }
-    serial_write("COMPOSITE: window count in list = ");
-    // print actual decimal count
-    if (win_count == 0) {
-        serial_write("0\n");
-    } else {
-        char cbuf[8]; int cp = 0; int n = win_count;
-        while (n > 0 && cp < 7) { cbuf[cp++] = '0' + (n % 10); n /= 10; }
-        if (cp == 0) cbuf[cp++] = '0';
-        for (int k = cp - 1; k >= 0; k--) { char b[2] = {cbuf[k], 0}; serial_write(b); }
-        serial_write("\n");
-    }
-    serial_write("COMPOSITE: about to loop windows\n");
     while (w) {
-        serial_write("COMPOSITE: w@");
-        serial_print_hex64((uint64_t)w);
-        serial_write(" visible=");
-        serial_write(w->visible ? "1" : "0");
-        serial_write(" surface@");
-        serial_print_hex64((uint64_t)w->surface);
-        serial_write("\n");
         if (w->visible && w->surface) {
-            serial_write("COMPOSITE: drawing one window\n");
             // To make the window visible over shell text (no global clear), first clear the window's rect area.
             display_fill_rect(w->x, w->y, w->width, w->height, 0xFF303030);
 

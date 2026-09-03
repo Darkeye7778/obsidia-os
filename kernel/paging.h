@@ -2,9 +2,16 @@
 #include <stdint.h>
 
 void paging_init(void);
+uint64_t paging_create_user_address_space(void);
+void paging_destroy_user_address_space(uint64_t cr3);
+void paging_activate(uint64_t cr3);
+uint64_t paging_get_kernel_cr3(void);
 
 // Map a single 4KiB page (physical -> virtual). For future use by loader/GUI.
 int paging_map_page(uint64_t virt, uint64_t phys, uint64_t flags);
+int paging_map_page_in(uint64_t cr3, uint64_t virt, uint64_t phys, uint64_t flags);
+int paging_user_range_valid(uint64_t cr3, uint64_t addr, uint64_t size, int write_access);
+uint64_t paging_translate_in(uint64_t cr3, uint64_t virt, uint64_t* flags);
 
 // Get the physical address of the current PML4 (for CR3).
 uint64_t paging_get_cr3(void);

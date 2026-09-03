@@ -3,7 +3,7 @@
 #include "../console/console.h"
 
 #define PAGE_SIZE 4096
-#define HEAP_INITIAL_PAGES 4096  // ~16 MiB initial arena. GUI descriptors now use kmalloc; plenty of headroom after moving kstacks and surface buffers to pmm. Reduces fragmentation for small allocs at boot.
+#define HEAP_INITIAL_PAGES 16
 #define HEAP_ALIGN 16
 #define BLOCK_MAGIC 0xA11C0C0AULL
 
@@ -59,21 +59,12 @@ void heap_init(void) {
     heap_arena_end = 0;
 
     // Allocate initial arena pages and create one large free block
-    block_t* first = 0;
-    for (uint64_t i = 0; i < HEAP_INITIAL_PAGES; i++) {
-        void* page = pmm_alloc_page();
-        if (!page) {
-            console_print("HEAP: failed to alloc initial pages\n");
-            return;
-        }
-
-        if (i == 0) {
-            first = (block_t*)page;
-            heap_arena_end = (uint8_t*)page + PAGE_SIZE;
-        } else {
-            heap_arena_end = (uint8_t*)page + PAGE_SIZE;
-        }
+    block_t* first = (block_t*)pmm_alloc_pages(HEAP_INITIAL_PAGES);
+    if (!first) {
+        console_print("HEAP: failed to allocate contiguous initial arena\n");
+        return;
     }
+    heap_arena_end = (uint8_t*)first + HEAP_INITIAL_PAGES * PAGE_SIZE;
 
     if (!first) return;
 
@@ -95,18 +86,9 @@ static int expand_heap(uint64_t needed) {
     uint64_t pages_needed = (needed + PAGE_SIZE - 1) / PAGE_SIZE;
     if (pages_needed < 1) pages_needed = 1;
 
-    block_t* new_block = 0;
-    for (uint64_t i = 0; i < pages_needed; i++) {
-        void* p = pmm_alloc_page();
-        if (!p) return 0;
-
-        if (i == 0) {
-            new_block = (block_t*)p;
-        }
-        heap_arena_end = (uint8_t*)p + PAGE_SIZE;
-    }
-
+    block_t* new_block = (block_t*)pmm_alloc_pages(pages_needed);
     if (!new_block) return 0;
+    heap_arena_end = (uint8_t*)new_block + pages_needed * PAGE_SIZE;
 
     uint64_t block_total = (uint64_t)heap_arena_end - (uint64_t)new_block;
     uint64_t payload = block_total - sizeof(block_t);

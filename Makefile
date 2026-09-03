@@ -8,7 +8,7 @@ KERNEL = kernel.elf
 ISO = obsidia.iso
 
 LIMINE_DIR = limine
-LIMINE_BIN = $(LIMINE_DIR)/limine.exe
+LIMINE_BIN = $(LIMINE_DIR)/limine
 
 INITRD = initrd.oar
 
@@ -41,6 +41,8 @@ OBJS = \
 	timer.o \
 	paging.o \
 	syscall.o \
+	usercopy.o \
+	elf.o \
 	gui_surface.o \
 	gui_window.o \
 	gui_compositor.o \
@@ -50,6 +52,9 @@ all: build
 
 $(LIMINE_DIR):
 	git clone https://github.com/limine-bootloader/limine.git --branch v7.x-binary --depth=1 $(LIMINE_DIR)
+
+$(LIMINE_BIN): $(LIMINE_DIR)/limine.c
+	$(MAKE) -C $(LIMINE_DIR) limine
 
 main.o: kernel/main.c
 	$(CC) $(CFLAGS) -c kernel/main.c -o main.o
@@ -102,6 +107,12 @@ paging.o: kernel/paging.c
 syscall.o: kernel/syscall.c
 	$(CC) $(CFLAGS) -c kernel/syscall.c -o syscall.o
 
+usercopy.o: kernel/usercopy.c
+	$(CC) $(CFLAGS) -c kernel/usercopy.c -o usercopy.o
+
+elf.o: kernel/elf.c
+	$(CC) $(CFLAGS) -c kernel/elf.c -o elf.o
+
 block.o: kernel/block.c
 	$(CC) $(CFLAGS) -c kernel/block.c -o block.o
 
@@ -152,10 +163,10 @@ context.o: kernel/context.asm
 $(KERNEL): $(OBJS) userland/hello_user.bin
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)
 
-$(INITRD): initrd/hello_user.bin
+$(INITRD): initrd/hello_user.bin initrd/fault_user.bin initrd/input_user.bin initrd/init.elf initrd/hello.elf initrd/invalid.elf initrd/foundation.txt
 	python3 build_oar.py initrd $(INITRD)
 
-iso: $(LIMINE_DIR) $(KERNEL) $(INITRD)
+iso: $(LIMINE_DIR) $(LIMINE_BIN) $(KERNEL) $(INITRD)
 	# Ensure limine bootloader files are in place (self-contained clean build)
 	mkdir -p iso/boot/limine
 	cp $(LIMINE_DIR)/limine-bios-cd.bin iso/boot/limine/
@@ -190,7 +201,7 @@ obsidia_disk.img:
 
 clean:
 	rm -f *.o $(KERNEL) $(ISO)
-	rm -f userland/*.bin initrd/hello_user.bin
+	rm -f userland/*.bin userland/*.elf initrd/hello_user.bin initrd/fault_user.bin initrd/input_user.bin initrd/init.elf initrd/hello.elf initrd/invalid.elf
 	rm -f $(INITRD)
 	rm -f obsidia_disk.img
 	# Note: source iso/ structure (for limine files) is preserved for self-contained builds; build will repopulate needed files from limine clone.
@@ -199,6 +210,18 @@ userland/hello_user.bin: userland/hello_user.asm
 	nasm -f bin -o $@ $<
 
 initrd/hello_user.bin: userland/hello_user.bin
+	cp $< $@
+
+userland/fault_user.bin: userland/fault_user.asm
+	nasm -f bin -o $@ $<
+
+initrd/fault_user.bin: userland/fault_user.bin
+	cp $< $@
+
+userland/input_user.bin: userland/input_user.asm
+	nasm -f bin -o $@ $<
+
+initrd/input_user.bin: userland/input_user.bin
 	cp $< $@
 
 programs: userland/hello_user.bin initrd/hello_user.bin
@@ -212,6 +235,7 @@ programs: userland/hello_user.bin initrd/hello_user.bin
 
 USER_CC      = gcc
 USER_CFLAGS  = -ffreestanding -m64 -mcmodel=large -mno-red-zone -fno-pic -fno-pie \
+               -mno-sse -mno-sse2 -mno-mmx -msoft-float \
                -nostdlib -nostdinc -Iuserland -Wall -Wextra -O2
 USER_LD      = ld
 USER_LDFLAGS = -T userland/user.ld -nostdlib
@@ -222,6 +246,20 @@ userland/%.bin: userland/%.c userland/user.ld
 	$(USER_LD) $(USER_LDFLAGS) $(@:.bin=.tmp.o) -o $(@:.bin=.tmp.elf)
 	objcopy -O binary $(@:.bin=.tmp.elf) $@
 	rm -f $(@:.bin=.tmp.o) $(@:.bin=.tmp.elf)
+
+userland/%.elf: userland/%.c userland/user.ld
+	$(USER_CC) $(USER_CFLAGS) -c $< -o $(@:.elf=.o)
+	$(USER_LD) $(USER_LDFLAGS) $(@:.elf=.o) -o $@
+	rm -f $(@:.elf=.o)
+
+initrd/init.elf: userland/init.elf
+	cp $< $@
+
+initrd/hello.elf: userland/hello_elf.elf
+	cp $< $@
+
+initrd/invalid.elf: userland/invalid_user.elf
+	cp $< $@
 
 # Convenience: build the C version of the demo
 userland/hello_user_c.bin: userland/hello_user_c.c
@@ -241,4 +279,3 @@ build: iso
 	@echo "Build complete (kernel + fresh initrd.oar + ISO). Use 'make run' to test."
 	@echo "Workflow: make clean && make build && make run"
 	@echo "(make build ensures initrd.oar is packed from current initrd/ contents and ISO is ready)"
-

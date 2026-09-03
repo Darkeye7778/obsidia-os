@@ -1,0 +1,1 @@
+descriptor-backed VFS I/O works

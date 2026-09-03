@@ -10,6 +10,13 @@ _start:
     mov rsi, msglen
     int 0x80
 
+    ; Deterministic CPU-bound interval: this contains no yield or syscall and
+    ; must be interrupted by the PIT for kernel tasks to keep running.
+    mov rcx, 50000000
+.preempt_test:
+    dec rcx
+    jnz .preempt_test
+
     ; get ticks
     mov rax, 2          ; SYS_GETTICKS
     int 0x80

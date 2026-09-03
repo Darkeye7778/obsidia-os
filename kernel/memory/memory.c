@@ -14,6 +14,7 @@ static uint8_t* pmm_bitmap = 0;
 static uint64_t pmm_bitmap_size = 0;
 
 static uint64_t pmm_max_page = 0;
+static uint64_t pmm_usable_limit = 0;
 static uint64_t pmm_next_hint = 0;
 static uint64_t pmm_free_count = 0;
 
@@ -117,6 +118,8 @@ void memory_init(struct limine_memmap_response* memmap) {
 
 	if (entry->type == LIMINE_MEMMAP_USABLE) {
 	    usable_pages += pages;
+	    uint64_t usable_end = entry->base + entry->length;
+	    if (usable_end > pmm_usable_limit) pmm_usable_limit = usable_end;
 	}
 
         if (entry->type == LIMINE_MEMMAP_USABLE) {
@@ -146,7 +149,12 @@ void memory_init(struct limine_memmap_response* memmap) {
         pmm_bitmap[i] = 0xFF;
     }
 
-    // Mark usable pages free
+    uint64_t bitmap_start_page = (uint64_t)pmm_bitmap / PAGE_SIZE;
+    uint64_t bitmap_page_count = (pmm_bitmap_size + PAGE_SIZE - 1) / PAGE_SIZE;
+
+    // Mark usable pages free, except the pages that physically contain the
+    // bitmap itself. Skipping them here avoids self-referential bitmap writes
+    // changing their own allocation state while the map is initialized.
     for (uint64_t i = 0; i < g_memmap->entry_count; i++) {
         struct limine_memmap_entry* entry = g_memmap->entries[i];
 
@@ -158,15 +166,14 @@ void memory_init(struct limine_memmap_response* memmap) {
         uint64_t page_count = entry->length / PAGE_SIZE;
 
         for (uint64_t p = 0; p < page_count; p++) {
-            bitmap_clear(start_page + p);
+            uint64_t page = start_page + p;
+            if (page >= bitmap_start_page && page < bitmap_start_page + bitmap_page_count) continue;
+            bitmap_clear(page);
             pmm_free_count++;
         }
     }
 
-    // Reserve bitmap itself
-    uint64_t bitmap_start_page = (uint64_t)pmm_bitmap / PAGE_SIZE;
-    uint64_t bitmap_page_count = (pmm_bitmap_size + PAGE_SIZE - 1) / PAGE_SIZE;
-
+    // The bitmap pages remained marked used from the initial 0xFF fill.
     for (uint64_t i = 0; i < bitmap_page_count; i++) {
         if (!bitmap_test(bitmap_start_page + i)) {
             bitmap_set(bitmap_start_page + i);
@@ -311,4 +318,8 @@ void pmm_free_pages(void* addr, uint64_t count) {
 
 uint64_t memory_get_free_pages(void) {
     return pmm_free_count;
+}
+
+uint64_t memory_get_max_physical(void) {
+    return pmm_usable_limit;
 }

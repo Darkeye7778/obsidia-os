@@ -157,11 +157,8 @@ void kmain(void) {
     console_print("Obsidia Console Online\n");
 
     memory_init(memmap_request.response);
-    heap_init();
 
     gdt_init();  // must be early for proper segments / TSS before IDT/user code
-    
-    vfs_init();
     
     serial_write("Checking module request...\n");
     
@@ -178,23 +175,26 @@ void kmain(void) {
         
         initrd_set((uint64_t)initrd->address, initrd->size);
         
-        int ok = vfs_mount_initrd_from((uint64_t)initrd->address, initrd->size);
-        serial_write(ok ? "VFS initrd mount OK\n" : "VFS initrd mount FAILED\n");
-        
-        if (ok) {
-            console_print("VFS initrd mounted.\n");
-        } else {
-            console_print("VFS initrd mount failed.\n");
-        }
+        serial_write("Initrd module recorded for post-paging mount\n");
     } else {
         console_print("No Limine initrd module found.\n");
     }
     
-    extern int vfs_mount_ramfs(const char* path);
-    vfs_mount_ramfs("/tmp");
-    
     paging_init();  // enable paging early so subsequent inits (IDT, timer, tasks, GUI) run under correct tables and avoid triple fault on transition
-    
+
+    // Rebuild VFS metadata under the kernel-owned page tables. The initrd bytes
+    // themselves were preserved during paging_init; VFS nodes are kernel heap
+    // objects and should be created in the final virtual-memory environment.
+    heap_init();
+    vfs_init();
+    if (module_request.response && module_request.response->module_count > 0) {
+        struct limine_file *initrd = module_request.response->modules[0];
+        if (!vfs_mount_initrd_from((uint64_t)initrd->address, initrd->size)) {
+            serial_write("VFS: post-paging mount failed\n");
+        }
+    }
+    vfs_mount_ramfs("/tmp");
+
     serial_write("after paging vfs_root ptr=");
     serial_write_hex64((uint64_t)vfs_get_root());
     serial_write("\n");
@@ -204,6 +204,7 @@ void kmain(void) {
     timer_init();
     syscall_init();
     tasking_init();
+
     block_init();
     pci_init();
     pci_scan();  // skeleton
@@ -322,6 +323,11 @@ void kmain(void) {
     gui_compositor_present();
     serial_write("MAIN: initial composite/present done\n");
 
+    /* Bootstrap policy now begins in a normal ELF64 ring-3 process.  The
+       kernel shell remains available after init's initial child exits. */
+    serial_write("MAIN: launching userspace init ELF\n");
+    task_run_user_program("init.elf");
+
     // ===== MAIN INPUT LOOP =====
     while (1) {
         int key = keyboard_getkey();
@@ -368,4 +374,3 @@ void kmain(void) {
         }
     }
 }
-

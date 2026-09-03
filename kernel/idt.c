@@ -1,7 +1,14 @@
 #include "idt.h"
 #include "console/console.h"
 #include "gdt.h"
+#include "task.h"
 #include <stdint.h>
+
+extern void serial_write(const char* str);
+static void serial_hex64(uint64_t v) {
+    static const char h[] = "0123456789abcdef";
+    for (int i = 60; i >= 0; i -= 4) outb(0x3F8, h[(v >> i) & 15]);
+}
 
 // x86_64 IDT entry
 typedef struct {
@@ -145,11 +152,26 @@ void idt_init(void) {
 }
 
 // Default C handler called from asm stubs (registers_t defined in idt.h)
-void isr_handler(registers_t* regs) {
+registers_t* isr_handler(registers_t* regs) {
     uint8_t vec = (uint8_t)regs->vector;
 
     if (vec < 32) {
-        // Exception
+        serial_write("EXCEPTION: userspace/kernel fault\n");
+        outb(0x3F8, '0' + (vec / 10));
+        outb(0x3F8, '0' + (vec % 10));
+        serial_write(" rip="); serial_hex64(regs->rip);
+        uint64_t cr2; __asm__ volatile ("mov %%cr2, %0" : "=r"(cr2));
+        serial_write(" cr2="); serial_hex64(cr2);
+        serial_write(" error="); serial_hex64(regs->error_code);
+        serial_write(" cs="); serial_hex64(regs->cs);
+        serial_write("\n");
+        if ((regs->cs & 3) == 3 && current_task && current_task->ring == 3) {
+            serial_write("USER FAULT: terminating process\n");
+            task_terminate_current(-((int64_t)vec), 1);
+            return task_schedule_from_interrupt(regs);
+        }
+        // A fault whose saved CS is ring 0 is always fatal, even if it occurred
+        // while servicing a userspace task.
         console_print("EXCEPTION: ");
         if (vec < 32) console_print((char*)exception_messages[vec]); else console_print("Unknown");
         console_print(" (vec=");
@@ -166,6 +188,7 @@ void isr_handler(registers_t* regs) {
             handlers[vec](regs);
         }
         pic_send_eoi(irq);
+        if (irq == 0) return task_schedule_from_interrupt(regs);
     } else {
         // Other (including 0x80 before syscall ready)
         if (handlers[vec]) {
@@ -174,6 +197,10 @@ void isr_handler(registers_t* regs) {
             // ignore or log
         }
     }
+    if (vec == 128 && task_reschedule_requested()) {
+        return task_schedule_from_interrupt(regs);
+    }
+    return regs;
 }
 
 void enable_interrupts(void) {

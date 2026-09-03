@@ -25,6 +25,7 @@ void serial_write(const char *str);
 #define PTE_NX       (1ULL << 63)
 
 static uint64_t* pml4 = 0;
+static uint64_t kernel_cr3 = 0;
 
 static uint64_t* alloc_page_table(void) {
     void* p = pmm_alloc_page();
@@ -77,37 +78,173 @@ void paging_invlpg(uint64_t addr) {
     invlpg(addr);
 }
 
-int paging_map_page(uint64_t virt, uint64_t phys, uint64_t flags) {
-    if (!pml4) return 0;
+static int map_page_in_root(uint64_t* root, uint64_t virt, uint64_t phys, uint64_t flags) {
+    if (!root) return 0;
 
     uint64_t pml4_idx = (virt >> 39) & 0x1FF;
     uint64_t pdpt_idx = (virt >> 30) & 0x1FF;
     uint64_t pd_idx   = (virt >> 21) & 0x1FF;
     uint64_t pt_idx   = (virt >> 12) & 0x1FF;
 
-    uint64_t* pdpt = (uint64_t*)(pml4[pml4_idx] & ~0xFFFULL);
-    if ((pml4[pml4_idx] & PTE_PRESENT) == 0) {
+    uint64_t table_flags = PTE_PRESENT | PTE_WRITABLE;
+    if (flags & PTE_USER) table_flags |= PTE_USER;
+    uint64_t* pdpt = (uint64_t*)(root[pml4_idx] & ~0xFFFULL);
+    if ((root[pml4_idx] & PTE_PRESENT) == 0) {
         pdpt = alloc_page_table();
         if (!pdpt) return 0;
-        pml4[pml4_idx] = (uint64_t)pdpt | PTE_PRESENT | PTE_WRITABLE;
+        root[pml4_idx] = (uint64_t)pdpt | table_flags;
+    } else if (flags & PTE_USER) {
+        root[pml4_idx] |= PTE_USER;
     }
 
     uint64_t* pd = (uint64_t*)(pdpt[pdpt_idx] & ~0xFFFULL);
     if ((pdpt[pdpt_idx] & PTE_PRESENT) == 0) {
         pd = alloc_page_table();
         if (!pd) return 0;
-        pdpt[pdpt_idx] = (uint64_t)pd | PTE_PRESENT | PTE_WRITABLE;
+        pdpt[pdpt_idx] = (uint64_t)pd | table_flags;
+    } else if (flags & PTE_USER) {
+        pdpt[pdpt_idx] |= PTE_USER;
     }
 
     uint64_t* pt = (uint64_t*)(pd[pd_idx] & ~0xFFFULL);
     if ((pd[pd_idx] & PTE_PRESENT) == 0) {
         pt = alloc_page_table();
         if (!pt) return 0;
-        pd[pd_idx] = (uint64_t)pt | PTE_PRESENT | PTE_WRITABLE;
+        pd[pd_idx] = (uint64_t)pt | table_flags;
+    } else if (flags & PTE_USER) {
+        pd[pd_idx] |= PTE_USER;
     }
 
-    pt[pt_idx] = (phys & ~0xFFFULL) | (flags & 0xFFF) | PTE_PRESENT;
+    pt[pt_idx] = (phys & ~0xFFFULL) | (flags & (0xFFFULL | PTE_NX)) | PTE_PRESENT;
     invlpg(virt);
+    return 1;
+}
+
+int paging_map_page(uint64_t virt, uint64_t phys, uint64_t flags) {
+    return map_page_in_root(pml4, virt, phys, flags);
+}
+
+int paging_map_page_in(uint64_t cr3, uint64_t virt, uint64_t phys, uint64_t flags) {
+    return map_page_in_root((uint64_t*)(cr3 & ~0xFFFULL), virt, phys, flags);
+}
+
+static uint64_t* clone_table(const uint64_t* source) {
+    uint64_t* copy = alloc_page_table();
+    if (!copy) return 0;
+    for (int i = 0; i < 512; i++) copy[i] = source[i];
+    return copy;
+}
+
+uint64_t paging_create_user_address_space(void) {
+    if (!pml4) return 0;
+    uint64_t* root = clone_table(pml4);
+    if (!root) return 0;
+    if (pml4[0] & PTE_PRESENT) {
+        uint64_t* old_pdpt = (uint64_t*)(pml4[0] & ~0xFFFULL);
+        uint64_t* new_pdpt = clone_table(old_pdpt);
+        if (!new_pdpt) { pmm_free_page(root); return 0; }
+        root[0] = (uint64_t)new_pdpt | (pml4[0] & 0xFFFULL);
+        if (old_pdpt[0] & PTE_PRESENT) {
+            uint64_t* old_pd = (uint64_t*)(old_pdpt[0] & ~0xFFFULL);
+            uint64_t* new_pd = clone_table(old_pd);
+            if (!new_pd) { pmm_free_page(new_pdpt); pmm_free_page(root); return 0; }
+            new_pdpt[0] = (uint64_t)new_pd | (old_pdpt[0] & 0xFFFULL);
+            for (int i = 0; i < 512; i++) {
+                if ((old_pd[i] & PTE_PRESENT) && !(old_pd[i] & PTE_HUGE)) {
+                    uint64_t* new_pt = clone_table((uint64_t*)(old_pd[i] & ~0xFFFULL));
+                    if (!new_pt) return 0;
+                    new_pd[i] = (uint64_t)new_pt | (old_pd[i] & 0xFFFULL);
+                }
+            }
+        }
+    }
+    return (uint64_t)root;
+}
+
+void paging_destroy_user_address_space(uint64_t cr3) {
+    uint64_t root_phys = cr3 & ~0xFFFULL;
+    if (!root_phys || root_phys == kernel_cr3) return;
+    uint64_t* root = (uint64_t*)root_phys;
+    /* Slot zero is eagerly cloned by paging_create_user_address_space(),
+       including its supervisor PT pages; free those table copies but only
+       free leaf frames carrying PTE_USER. */
+    if (root[0] & PTE_PRESENT) {
+        uint64_t* pdpt=(uint64_t*)(root[0] & ~0xFFFULL);
+        if ((pdpt[0] & PTE_PRESENT) && !(pdpt[0] & PTE_HUGE)) {
+            uint64_t* pd=(uint64_t*)(pdpt[0] & ~0xFFFULL);
+            for (int c=0;c<512;c++) if ((pd[c]&PTE_PRESENT) && !(pd[c]&PTE_HUGE)) {
+                uint64_t* pt=(uint64_t*)(pd[c]&~0xFFFULL);
+                for(int d=0;d<512;d++)
+                    if((pt[d]&(PTE_PRESENT|PTE_USER))==(PTE_PRESENT|PTE_USER))
+                        pmm_free_page((void*)(pt[d]&0x000FFFFFFFFFF000ULL));
+                pmm_free_page(pt);
+            }
+            pmm_free_page(pd);
+        }
+        pmm_free_page(pdpt);
+    }
+    /* Other user-marked PML4 branches were allocated on demand (not cloned),
+       notably the high userspace stack branch used by ELF processes. */
+    for (int a=1; a<512; a++) {
+        if ((root[a] & (PTE_PRESENT|PTE_USER)) != (PTE_PRESENT|PTE_USER) ||
+            (root[a] & PTE_HUGE)) continue;
+        uint64_t* pdpt=(uint64_t*)(root[a] & ~0xFFFULL);
+        for (int b=0; b<512; b++) {
+            if ((pdpt[b] & (PTE_PRESENT|PTE_USER)) != (PTE_PRESENT|PTE_USER) ||
+                (pdpt[b] & PTE_HUGE)) continue;
+            uint64_t* pd=(uint64_t*)(pdpt[b] & ~0xFFFULL);
+            for (int c=0; c<512; c++) {
+                if ((pd[c] & (PTE_PRESENT|PTE_USER)) != (PTE_PRESENT|PTE_USER) ||
+                    (pd[c] & PTE_HUGE)) continue;
+                uint64_t* pt=(uint64_t*)(pd[c] & ~0xFFFULL);
+                for (int d=0; d<512; d++)
+                    if ((pt[d] & (PTE_PRESENT|PTE_USER)) == (PTE_PRESENT|PTE_USER))
+                        pmm_free_page((void*)(pt[d] & 0x000FFFFFFFFFF000ULL));
+                pmm_free_page(pt);
+            }
+            pmm_free_page(pd);
+        }
+        pmm_free_page(pdpt);
+    }
+    pmm_free_page(root);
+}
+
+void paging_activate(uint64_t cr3) {
+    if (cr3) __asm__ volatile ("mov %0, %%cr3" : : "r"(cr3 & ~0xFFFULL) : "memory");
+}
+
+uint64_t paging_get_kernel_cr3(void) { return kernel_cr3; }
+
+uint64_t paging_translate_in(uint64_t cr3, uint64_t virt, uint64_t* flags) {
+    if (!cr3) return 0;
+    uint64_t e4 = ((uint64_t*)(cr3 & ~0xFFFULL))[(virt >> 39) & 0x1FF];
+    if (!(e4 & PTE_PRESENT)) return 0;
+    uint64_t e3 = ((uint64_t*)(e4 & ~0xFFFULL))[(virt >> 30) & 0x1FF];
+    if (!(e3 & PTE_PRESENT) || (e3 & PTE_HUGE)) return 0;
+    uint64_t e2 = ((uint64_t*)(e3 & ~0xFFFULL))[(virt >> 21) & 0x1FF];
+    if (!(e2 & PTE_PRESENT) || (e2 & PTE_HUGE)) return 0;
+    uint64_t e1 = ((uint64_t*)(e2 & ~0xFFFULL))[(virt >> 12) & 0x1FF];
+    if (!(e1 & PTE_PRESENT)) return 0;
+    if (flags) *flags = e1 & (0xFFFULL | PTE_NX);
+    return (e1 & 0x000FFFFFFFFFF000ULL) | (virt & 0xFFFULL);
+}
+
+int paging_user_range_valid(uint64_t cr3, uint64_t addr, uint64_t size, int write_access) {
+    if (!cr3 || size == 0 || addr >= 0x0000800000000000ULL || size > 0x0000800000000000ULL - addr) return 0;
+    uint64_t last = (addr + size - 1) & ~0xFFFULL;
+    for (uint64_t v = addr & ~0xFFFULL;; v += PAGE_SIZE) {
+        uint64_t* l4 = (uint64_t*)(cr3 & ~0xFFFULL);
+        uint64_t e4 = l4[(v >> 39) & 0x1FF];
+        if ((e4 & (PTE_PRESENT|PTE_USER)) != (PTE_PRESENT|PTE_USER)) return 0;
+        uint64_t e3 = ((uint64_t*)(e4 & ~0xFFFULL))[(v >> 30) & 0x1FF];
+        if ((e3 & (PTE_PRESENT|PTE_USER)) != (PTE_PRESENT|PTE_USER) || (e3 & PTE_HUGE)) return 0;
+        uint64_t e2 = ((uint64_t*)(e3 & ~0xFFFULL))[(v >> 21) & 0x1FF];
+        if ((e2 & (PTE_PRESENT|PTE_USER)) != (PTE_PRESENT|PTE_USER) || (e2 & PTE_HUGE)) return 0;
+        uint64_t e1 = ((uint64_t*)(e2 & ~0xFFFULL))[(v >> 12) & 0x1FF];
+        if ((e1 & (PTE_PRESENT|PTE_USER)) != (PTE_PRESENT|PTE_USER)) return 0;
+        if (write_access && !(e1 & PTE_WRITABLE)) return 0;
+        if (v == last) break;
+    }
     return 1;
 }
 
@@ -195,9 +332,10 @@ void paging_init(void) {
     pml4[0]   = (uint64_t)pdpt_low  | PTE_PRESENT | PTE_WRITABLE;
     pml4[511] = (uint64_t)pdpt_high | PTE_PRESENT | PTE_WRITABLE;
 
-    // 4 GiB low identity + high kernel alias to cover Limine responses, modules, FB MMIO etc.
-    // (plus explicit preserve for non-identity pointers from bootloader)
-    uint64_t low_limit = 0x100000000ULL;
+    // Identity-map only physical memory that can actually exist according to
+    // the boot memory map. Mapping a hard-coded 4 GiB with 4 KiB leaves wasted
+    // thousands of page-table frames on small machines.
+    uint64_t low_limit = memory_get_max_physical();
 
     uint64_t* pd_low = alloc_page_table();
     if (!pd_low) return;
@@ -212,7 +350,10 @@ void paging_init(void) {
     uint64_t kernel_phys_base = kernel_code_phys - (kernel_code_virt - KERNEL_VMA);
 
     // High half kernel alias: map KERNEL_VMA + off -> kernel_phys_base + off
-    for (uint64_t off = 0; off < low_limit; off += PAGE_SIZE) {
+    // The linked kernel occupies only the beginning of its 2 GiB high-half
+    // window. Limine/module/framebuffer mappings are preserved explicitly.
+    uint64_t kernel_map_size = 64ULL * 1024 * 1024;
+    for (uint64_t off = 0; off < kernel_map_size; off += PAGE_SIZE) {
         uint64_t v = KERNEL_VMA + off;
         uint64_t p = kernel_phys_base + off;
         paging_map_page(v, p, PTE_WRITABLE | PTE_GLOBAL);
@@ -261,6 +402,7 @@ void paging_init(void) {
         "mov %%rax, %%cr3\n"
         : : "r"((uint64_t)pml4) : "rax", "memory"
     );
+    kernel_cr3 = (uint64_t)pml4;
 
     // Reload GDT/segments under the new page tables (important after CR3 in higher-half)
     gdt_reload();

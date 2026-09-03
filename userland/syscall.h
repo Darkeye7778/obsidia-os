@@ -7,6 +7,13 @@
 #define SYS_GETTICKS 2
 #define SYS_YIELD    3
 #define SYS_FBINFO   4
+#define SYS_FD_READ  5
+#define SYS_FD_WRITE 6
+#define SYS_OPEN     7
+#define SYS_CLOSE    8
+#define SYS_SLEEP    9
+#define SYS_SPAWN    10
+#define SYS_WAIT     11
 
 /* Simple fb info struct for user (matches kernel) */
 typedef struct {
@@ -56,4 +63,26 @@ static inline void sys_yield(void) {
 
 static inline void sys_fbinfo(fb_info_t* out) {
     syscall(SYS_FBINFO, (uint64_t)out, 0, 0);
+}
+
+static inline int64_t sys_read(int fd, void* buf, uint64_t len) {
+    return (int64_t)syscall(SYS_FD_READ,(uint64_t)fd,(uint64_t)buf,len);
+}
+static inline int64_t sys_fd_write(int fd, const void* buf, uint64_t len) {
+    return (int64_t)syscall(SYS_FD_WRITE,(uint64_t)fd,(uint64_t)buf,len);
+}
+static inline int64_t sys_spawn(const char* path) {
+    return (int64_t)syscall(SYS_SPAWN,(uint64_t)path,0,0);
+}
+static inline int64_t sys_open(const char* path) {
+    return (int64_t)syscall(SYS_OPEN,(uint64_t)path,0,0);
+}
+static inline int64_t sys_close(int fd) {
+    return (int64_t)syscall(SYS_CLOSE,(uint64_t)fd,0,0);
+}
+static inline void sys_sleep(uint64_t ticks) {
+    syscall(SYS_SLEEP,ticks,0,0);
+}
+static inline int64_t sys_wait(uint64_t pid, int64_t* status) {
+    return (int64_t)syscall(SYS_WAIT,pid,(uint64_t)status,0);
 }

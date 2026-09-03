@@ -12,6 +12,7 @@ void pmm_free_page(void* addr);
 void memory_print_hex64(uint64_t value);
 void memory_print_dec(uint64_t value);
 uint64_t memory_get_free_pages(void);
+uint64_t memory_get_max_physical(void);
 
 // Allocate 'count' consecutive pages (returns base physical address, or NULL if not possible).
 // Useful for things that need contiguous kernel stacks etc. (identity mapped).

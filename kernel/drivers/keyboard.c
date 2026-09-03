@@ -1,6 +1,7 @@
 #include "keyboard.h"
 #include "idt.h"
 #include <stdint.h>
+#include "../task.h"
 
 static int shift_down = 0;
 static int ctrl_down = 0;
@@ -108,7 +109,6 @@ static void keyboard_irq_handler(registers_t* regs) {
 
     if (scancode == 0xE0) {
         extended = 1;
-        pic_send_eoi(1);
         return;
     }
 
@@ -117,37 +117,32 @@ static void keyboard_irq_handler(registers_t* regs) {
 
     if (extended) {
         extended = 0;
-        if (released) { pic_send_eoi(1); return; }
+        if (released) return;
         int special = 0;
         if (code == 0x4B) special = KEY_ARROW_LEFT;
         else if (code == 0x4D) special = KEY_ARROW_RIGHT;
         else if (code == 0x48) special = KEY_ARROW_UP;
         else if (code == 0x50) special = KEY_ARROW_DOWN;
-        if (special) enqueue_key(special);
-        pic_send_eoi(1);
+        if (special) { enqueue_key(special); task_wake_input_waiters(); }
         return;
     }
 
     if (code == 0x2A || code == 0x36) {
         shift_down = !released;
-        pic_send_eoi(1);
         return;
     }
 
     if (code == 0x1D) {
         ctrl_down = !released;
-        pic_send_eoi(1);
         return;
     }
 
     if (code == 0x3A && !released) {
         caps_lock = !caps_lock;
-        pic_send_eoi(1);
         return;
     }
 
     if (released) {
-        pic_send_eoi(1);
         return;
     }
 
@@ -160,7 +155,6 @@ static void keyboard_irq_handler(registers_t* regs) {
     }
 
     if (!c) {
-        pic_send_eoi(1);
         return;
     }
 
@@ -169,12 +163,14 @@ static void keyboard_irq_handler(registers_t* regs) {
         if (c == 'a' || c == 'A') key = KEY_CTRL_A;
         else if (c == 'c' || c == 'C') key = KEY_CTRL_C;
         else if (c == 'l' || c == 'L') key = KEY_CTRL_L;
-        else { pic_send_eoi(1); return; }
+        else return;
     }
 
     enqueue_key(key);
-    pic_send_eoi(1);
+    task_wake_input_waiters();
 }
+
+int keyboard_try_getkey(void) { return dequeue_key(); }
 
 void keyboard_init(void) {
     keybuf_head = keybuf_tail = 0;

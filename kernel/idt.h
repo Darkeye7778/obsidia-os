@@ -31,3 +31,5 @@ typedef struct registers {
     uint64_t error_code;
     uint64_t rip, cs, rflags, rsp, ss;
 } registers_t;
+
+registers_t* isr_handler(registers_t* regs);

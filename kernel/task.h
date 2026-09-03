@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#include "idt.h"
 
 #define MAX_TASKS 16
 #define TASK_NAME_LEN 32
@@ -29,6 +30,14 @@ typedef struct task {
     uint64_t ustack_size;
 
     uint64_t entry_point;
+    uint8_t owns_kstack;
+    int64_t exit_status;
+    uint8_t faulted;
+    uint64_t wake_tick;
+    uint8_t wait_reason;
+    uint64_t parent_pid;
+    struct { uint64_t pid; int64_t status; uint8_t valid; } completions[8];
+    struct { void* object; uint64_t offset; uint8_t used; } fds[16];
 
     // For simple list
     struct task* next;
@@ -50,6 +59,13 @@ void task_yield(void);
 
 // Simple scheduler: pick next ready task
 void schedule(void);
+registers_t* task_schedule_from_interrupt(registers_t* regs);
+void task_request_reschedule(void);
+int task_reschedule_requested(void);
+void task_terminate_current(int64_t status, int faulted);
+void task_block_current(uint8_t reason, uint64_t wake_tick);
+void task_wake_input_waiters(void);
+int task_wait_child(uint64_t pid, int64_t* status);
 
 // Get current pid etc for syscalls
 uint64_t task_get_current_pid(void);
@@ -62,6 +78,4 @@ void context_switch(task_t* prev, task_t* next);
 
 // User program launch (loader + ring 3 entry). Returns when the program does SYS_EXIT.
 int task_run_user_program(const char* filename);
-
-// Called from syscall EXIT handler to cleanly return control to the 'run' caller
-void task_unwind_from_user_exit(void);
+int64_t process_spawn(const char* filename, uint64_t parent_pid);

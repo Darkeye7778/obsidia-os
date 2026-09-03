@@ -11,7 +11,6 @@ static volatile uint64_t timer_ticks = 0;
 static void timer_irq_handler(registers_t* regs) {
     (void)regs;
     timer_ticks++;
-    pic_send_eoi(0);
 }
 
 void timer_init(void) {
