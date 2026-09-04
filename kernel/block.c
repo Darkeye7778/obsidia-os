@@ -45,11 +45,12 @@ block_device_t* block_create_ramdisk(const char* name, uint64_t size_bytes) {
 
     ramdisk_priv_t* priv = (ramdisk_priv_t*)kmalloc(sizeof(ramdisk_priv_t));
     if (!priv) {
+        kfree(dev);
         return 0;
     }
 
     priv->data = (uint8_t*)kmalloc(size_bytes);
-    if (!priv->data) return 0;
+    if (!priv->data){kfree(priv);kfree(dev);return 0;}
     priv->size = size_bytes;
 
     // zero the disk
@@ -67,7 +68,7 @@ block_device_t* block_create_ramdisk(const char* name, uint64_t size_bytes) {
     dev->private_data = priv;
     dev->next = 0;
 
-    if (block_register(dev) != 0) return 0;
+    if (block_register(dev) != 0){kfree(priv->data);kfree(priv);kfree(dev);return 0;}
     return dev;
 }
 
@@ -152,4 +153,3 @@ int block_write(block_device_t* dev, uint64_t lba, uint64_t count, const void* b
     if (!dev || !dev->write) return -1;
     return dev->write(dev, lba, count, buf);
 }
-

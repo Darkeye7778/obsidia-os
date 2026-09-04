@@ -16,6 +16,20 @@ void syscall_init(void);
 #define SYS_SLEEP    9
 #define SYS_SPAWN    10
 #define SYS_WAIT     11
+#define SYS_GETPID   12
+#define SYS_VM_MAP   13
+#define SYS_VM_UNMAP 14
+#define SYS_HANDLE_CLOSE 15
+#define SYS_HANDLE_FIND  16
+#define SYS_IPC_CREATE   17
+#define SYS_IPC_SEND     18
+#define SYS_IPC_RECV     19
+#define SYS_SHM_CREATE   20
+#define SYS_SHM_MAP      21
+#define SYS_SHM_UNMAP    22
+#define SYS_SURFACE_CREATE 23
+#define SYS_SURFACE_PRESENT 24
+#define SYS_INPUT_READ      25
 
 // Simple fb info struct for user
 typedef struct {

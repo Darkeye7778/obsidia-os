@@ -137,68 +137,54 @@ static uint64_t* clone_table(const uint64_t* source) {
 
 uint64_t paging_create_user_address_space(void) {
     if (!pml4) return 0;
-    uint64_t* root = clone_table(pml4);
+    uint64_t* root = alloc_page_table();
     if (!root) return 0;
-    if (pml4[0] & PTE_PRESENT) {
-        uint64_t* old_pdpt = (uint64_t*)(pml4[0] & ~0xFFFULL);
-        uint64_t* new_pdpt = clone_table(old_pdpt);
-        if (!new_pdpt) { pmm_free_page(root); return 0; }
-        root[0] = (uint64_t)new_pdpt | (pml4[0] & 0xFFFULL);
-        if (old_pdpt[0] & PTE_PRESENT) {
-            uint64_t* old_pd = (uint64_t*)(old_pdpt[0] & ~0xFFFULL);
-            uint64_t* new_pd = clone_table(old_pd);
-            if (!new_pd) { pmm_free_page(new_pdpt); pmm_free_page(root); return 0; }
-            new_pdpt[0] = (uint64_t)new_pd | (old_pdpt[0] & 0xFFFULL);
-            for (int i = 0; i < 512; i++) {
-                if ((old_pd[i] & PTE_PRESENT) && !(old_pd[i] & PTE_HUGE)) {
-                    uint64_t* new_pt = clone_table((uint64_t*)(old_pd[i] & ~0xFFFULL));
-                    if (!new_pt) return 0;
-                    new_pd[i] = (uint64_t)new_pt | (old_pd[i] & 0xFFFULL);
-                }
+    /* Upper-half supervisor mappings are immutable and shared.  Every
+       lower-half page-table page is private, even when its leaf frames are
+       supervisor identity mappings needed by the current kernel runtime. */
+    for(int i=256;i<512;i++) root[i]=pml4[i];
+    for(int a=0;a<256;a++) if(pml4[a]&PTE_PRESENT) {
+        uint64_t* old3=(uint64_t*)(pml4[a]&~0xFFFULL);
+        uint64_t* new3=alloc_page_table(); if(!new3) goto fail;
+        root[a]=(uint64_t)new3|(pml4[a]&0xFFFULL);
+        for(int b=0;b<512;b++) {
+          if((old3[b]&PTE_PRESENT)&&(old3[b]&PTE_HUGE)) { new3[b]=old3[b]; continue; }
+          if((old3[b]&PTE_PRESENT)&&!(old3[b]&PTE_HUGE)) {
+            uint64_t* old2=(uint64_t*)(old3[b]&~0xFFFULL);
+            uint64_t* new2=alloc_page_table(); if(!new2) goto fail;
+            new3[b]=(uint64_t)new2|(old3[b]&0xFFFULL);
+            for(int c=0;c<512;c++) {
+              if((old2[c]&PTE_PRESENT)&&(old2[c]&PTE_HUGE)) { new2[c]=old2[c]; continue; }
+              if((old2[c]&PTE_PRESENT)&&!(old2[c]&PTE_HUGE)) {
+                uint64_t* new1=clone_table((uint64_t*)(old2[c]&~0xFFFULL));
+                if(!new1) goto fail;
+                new2[c]=(uint64_t)new1|(old2[c]&0xFFFULL);
+              }
             }
+          }
         }
     }
     return (uint64_t)root;
+fail:
+    paging_destroy_user_address_space((uint64_t)root);
+    return 0;
 }
 
 void paging_destroy_user_address_space(uint64_t cr3) {
     uint64_t root_phys = cr3 & ~0xFFFULL;
     if (!root_phys || root_phys == kernel_cr3) return;
     uint64_t* root = (uint64_t*)root_phys;
-    /* Slot zero is eagerly cloned by paging_create_user_address_space(),
-       including its supervisor PT pages; free those table copies but only
-       free leaf frames carrying PTE_USER. */
-    if (root[0] & PTE_PRESENT) {
-        uint64_t* pdpt=(uint64_t*)(root[0] & ~0xFFFULL);
-        if ((pdpt[0] & PTE_PRESENT) && !(pdpt[0] & PTE_HUGE)) {
-            uint64_t* pd=(uint64_t*)(pdpt[0] & ~0xFFFULL);
-            for (int c=0;c<512;c++) if ((pd[c]&PTE_PRESENT) && !(pd[c]&PTE_HUGE)) {
-                uint64_t* pt=(uint64_t*)(pd[c]&~0xFFFULL);
-                for(int d=0;d<512;d++)
-                    if((pt[d]&(PTE_PRESENT|PTE_USER))==(PTE_PRESENT|PTE_USER))
-                        pmm_free_page((void*)(pt[d]&0x000FFFFFFFFFF000ULL));
-                pmm_free_page(pt);
-            }
-            pmm_free_page(pd);
-        }
-        pmm_free_page(pdpt);
-    }
-    /* Other user-marked PML4 branches were allocated on demand (not cloned),
-       notably the high userspace stack branch used by ELF processes. */
-    for (int a=1; a<512; a++) {
-        if ((root[a] & (PTE_PRESENT|PTE_USER)) != (PTE_PRESENT|PTE_USER) ||
-            (root[a] & PTE_HUGE)) continue;
+    for (int a=0; a<256; a++) {
+        if (!(root[a]&PTE_PRESENT) || (root[a]&PTE_HUGE)) continue;
         uint64_t* pdpt=(uint64_t*)(root[a] & ~0xFFFULL);
         for (int b=0; b<512; b++) {
-            if ((pdpt[b] & (PTE_PRESENT|PTE_USER)) != (PTE_PRESENT|PTE_USER) ||
-                (pdpt[b] & PTE_HUGE)) continue;
+            if (!(pdpt[b]&PTE_PRESENT) || (pdpt[b]&PTE_HUGE)) continue;
             uint64_t* pd=(uint64_t*)(pdpt[b] & ~0xFFFULL);
             for (int c=0; c<512; c++) {
-                if ((pd[c] & (PTE_PRESENT|PTE_USER)) != (PTE_PRESENT|PTE_USER) ||
-                    (pd[c] & PTE_HUGE)) continue;
+                if (!(pd[c]&PTE_PRESENT) || (pd[c]&PTE_HUGE)) continue;
                 uint64_t* pt=(uint64_t*)(pd[c] & ~0xFFFULL);
                 for (int d=0; d<512; d++)
-                    if ((pt[d] & (PTE_PRESENT|PTE_USER)) == (PTE_PRESENT|PTE_USER))
+                    if ((pt[d] & (PTE_PRESENT|PTE_USER)) == (PTE_PRESENT|PTE_USER) && !(pt[d]&PAGING_SHARED))
                         pmm_free_page((void*)(pt[d] & 0x000FFFFFFFFFF000ULL));
                 pmm_free_page(pt);
             }
@@ -227,6 +213,19 @@ uint64_t paging_translate_in(uint64_t cr3, uint64_t virt, uint64_t* flags) {
     if (!(e1 & PTE_PRESENT)) return 0;
     if (flags) *flags = e1 & (0xFFFULL | PTE_NX);
     return (e1 & 0x000FFFFFFFFFF000ULL) | (virt & 0xFFFULL);
+}
+
+uint64_t paging_unmap_page_in(uint64_t cr3,uint64_t virt,uint64_t* flags) {
+    if(!cr3) return 0;
+    uint64_t* l4=(uint64_t*)(cr3&~0xFFFULL); uint64_t e4=l4[(virt>>39)&511];
+    if(!(e4&PTE_PRESENT)) return 0;
+    uint64_t* l3=(uint64_t*)(e4&~0xFFFULL); uint64_t e3=l3[(virt>>30)&511];
+    if(!(e3&PTE_PRESENT)||(e3&PTE_HUGE)) return 0;
+    uint64_t* l2=(uint64_t*)(e3&~0xFFFULL); uint64_t e2=l2[(virt>>21)&511];
+    if(!(e2&PTE_PRESENT)||(e2&PTE_HUGE)) return 0;
+    uint64_t* l1=(uint64_t*)(e2&~0xFFFULL); uint64_t* p=&l1[(virt>>12)&511];
+    if(!(*p&PTE_PRESENT)) return 0; uint64_t old=*p; *p=0; invlpg(virt);
+    if(flags)*flags=old&(0xFFFULL|PTE_NX); return old&0x000FFFFFFFFFF000ULL;
 }
 
 int paging_user_range_valid(uint64_t cr3, uint64_t addr, uint64_t size, int write_access) {
@@ -352,11 +351,15 @@ void paging_init(void) {
     // High half kernel alias: map KERNEL_VMA + off -> kernel_phys_base + off
     // The linked kernel occupies only the beginning of its 2 GiB high-half
     // window. Limine/module/framebuffer mappings are preserved explicitly.
+    extern uint8_t __text_start[],__text_end[],__rodata_start[],__rodata_end[];
     uint64_t kernel_map_size = 64ULL * 1024 * 1024;
     for (uint64_t off = 0; off < kernel_map_size; off += PAGE_SIZE) {
         uint64_t v = KERNEL_VMA + off;
         uint64_t p = kernel_phys_base + off;
-        paging_map_page(v, p, PTE_WRITABLE | PTE_GLOBAL);
+        uint64_t f=PTE_GLOBAL|PTE_NX;
+        if(v>=(uint64_t)__text_start && v<(uint64_t)__text_end) f=PTE_GLOBAL;
+        else if(!(v>=(uint64_t)__rodata_start && v<(uint64_t)__rodata_end)) f|=PTE_WRITABLE;
+        paging_map_page(v, p, f);
     }
 
     // Preserve the exact virtual address Limine gave for the framebuffer (in the response)
@@ -379,10 +382,19 @@ void paging_init(void) {
     // while we are still on the old CR3 so current_virt_to_phys can resolve them.
     paging_preserve_limine_modules();
 
-    // Set CR4 (PAE + PGE) *before* CR3 for a clean long-mode paging transition
+    // Enable NX before installing NX-marked entries.
+    uint32_t eax,edx;
+    __asm__ volatile("cpuid":"=a"(eax),"=d"(edx):"a"(0x80000001):"rbx","rcx");
+    if(edx&(1U<<20)) { uint32_t lo,hi; __asm__ volatile("rdmsr":"=a"(lo),"=d"(hi):"c"(0xC0000080));
+        lo|=(1U<<11); __asm__ volatile("wrmsr"::"a"(lo),"d"(hi),"c"(0xC0000080)); }
+
+    // Set CR4 (PAE + PGE, and SMEP when enumerated) before CR3.
     uint64_t cr4;
     __asm__ volatile ("mov %%cr4, %0" : "=r"(cr4));
     cr4 |= (1 << 5) /* PAE */ | (1 << 7) /* PGE */;
+    uint32_t a7,ebx7,c7,d7;
+    __asm__ volatile("cpuid":"=a"(a7),"=b"(ebx7),"=c"(c7),"=d"(d7):"a"(7),"c"(0));
+    if(ebx7&(1U<<7)) cr4|=(1ULL<<20);
     __asm__ volatile ("mov %0, %%cr4" : : "r"(cr4) : "memory");
 
     // Properly translate the current stack virtual address to its physical address

@@ -45,7 +45,8 @@ typedef struct {
 static gdt_entry_t gdt[GDT_ENTRIES];
 static tss_entry_t* tss_gdt_entry; // points into gdt for the tss slots
 static tss_t tss;
-static uint64_t tss_kernel_stack[4096 / sizeof(uint64_t)]; // 4KiB kernel stack for TSS rsp0 (small for base)
+static uint64_t tss_kernel_stack[4096 / sizeof(uint64_t)];
+static uint8_t double_fault_stack[16384] __attribute__((aligned(16)));
 
 typedef struct {
     uint16_t limit;
@@ -111,6 +112,7 @@ void gdt_init(void) {
 
     // Initial kernel stack for TSS (top of our small stack)
     tss.rsp0 = (uint64_t)&tss_kernel_stack[4096 / sizeof(uint64_t)];
+    tss.ist[0] = (uint64_t)&double_fault_stack[sizeof(double_fault_stack)];
 
     gdtr.limit = sizeof(gdt) - 1;
     gdtr.base  = (uint64_t)&gdt[0];

@@ -17,6 +17,20 @@ static uint64_t pmm_max_page = 0;
 static uint64_t pmm_usable_limit = 0;
 static uint64_t pmm_next_hint = 0;
 static uint64_t pmm_free_count = 0;
+typedef struct { uint64_t first, end; } usable_range_t;
+static usable_range_t usable_ranges[128];
+static uint32_t usable_range_count;
+
+static uint64_t irq_save(void) { uint64_t f; __asm__ volatile("pushfq; pop %0; cli":"=r"(f)::"memory"); return f; }
+static void irq_restore(uint64_t f) { if(f&(1ULL<<9)) __asm__ volatile("sti":::"memory"); }
+
+static int page_is_usable(uint64_t page) {
+    uint64_t addr=page*PAGE_SIZE;
+    for(uint32_t i=0;i<usable_range_count;i++) {
+        if(addr>=usable_ranges[i].first && addr<usable_ranges[i].end) return 1;
+    }
+    return 0;
+}
 
 static void bitmap_set(uint64_t page) {
     pmm_bitmap[page / 8] |= (1 << (page % 8));
@@ -100,6 +114,7 @@ void memory_init(struct limine_memmap_response* memmap) {
 
     total_pages = 0;
     usable_pages = 0;
+    usable_range_count = 0;
 
     if (!g_memmap) {
         return;
@@ -117,6 +132,11 @@ void memory_init(struct limine_memmap_response* memmap) {
 	total_pages += pages;
 
 	if (entry->type == LIMINE_MEMMAP_USABLE) {
+	    if (usable_range_count < 128) {
+	        usable_ranges[usable_range_count].first = entry->base;
+	        usable_ranges[usable_range_count].end = entry->base + entry->length;
+	        usable_range_count++;
+	    }
 	    usable_pages += pages;
 	    uint64_t usable_end = entry->base + entry->length;
 	    if (usable_end > pmm_usable_limit) pmm_usable_limit = usable_end;
@@ -231,7 +251,9 @@ uint64_t memory_get_usable_pages(void) {
 }
 
 void* pmm_alloc_page(void) {
+    uint64_t irq=irq_save();
     if (!pmm_bitmap || pmm_free_count == 0) {
+        irq_restore(irq);
         return 0;
     }
 
@@ -242,78 +264,58 @@ void* pmm_alloc_page(void) {
             bitmap_set(p);
             pmm_free_count--;
             pmm_next_hint = (p + 1) % pmm_max_page;
+            irq_restore(irq);
             return (void*)(p * PAGE_SIZE);
         }
     }
 
-    return 0; // out of memory (should not reach if count accurate)
+    irq_restore(irq);
+    return 0;
 }
 
 void pmm_free_page(void* addr) {
-    if (!addr) return;
+    if (!addr || ((uint64_t)addr & (PAGE_SIZE-1))) return;
+    uint64_t irq=irq_save();
     uint64_t page = (uint64_t)addr / PAGE_SIZE;
-    if (page >= pmm_max_page) return;
+    if (page >= pmm_max_page || !page_is_usable(page)) { irq_restore(irq); return; }
     if (bitmap_test(page)) {
         bitmap_clear(page);
         pmm_free_count++;
     }
+    irq_restore(irq);
 }
 
 void* pmm_alloc_pages(uint64_t count) {
-    if (!pmm_bitmap || count == 0 || pmm_free_count < count) return 0;
-    if (count == 1) return pmm_alloc_page();
-
-    // Build a contiguous run by following pmm_alloc_page() output (which tends to be sequential from hint).
-    // If we get a hole, free the current partial run and start a new potential run with the latest page.
-    // This reliably finds runs even with fragmentation from the 4GB page table allocations.
-    uint64_t attempts = 0;
-    const uint64_t MAX_ATT = 100000;
-
-    while (attempts < MAX_ATT) {
-        void* base = pmm_alloc_page();
-        if (!base) return 0;
-        uint64_t cur_base = (uint64_t)base;
-        uint64_t cur_len = 1;
-
-        while (cur_len < count) {
-            void* nxt = pmm_alloc_page();
-            if (!nxt) {
-                // free partial
-                for (uint64_t k = 0; k < cur_len; k++) {
-                    pmm_free_page((void*)(cur_base + k * PAGE_SIZE));
-                }
-                return 0;
-            }
-            uint64_t nxt_p = (uint64_t)nxt;
-            if (nxt_p == cur_base + cur_len * PAGE_SIZE) {
-                cur_len++;
-            } else {
-                // hole: free the current run, keep this nxt as start of new
-                for (uint64_t k = 0; k < cur_len; k++) {
-                    pmm_free_page((void*)(cur_base + k * PAGE_SIZE));
-                }
-                cur_base = nxt_p;
-                cur_len = 1;
-            }
+    uint64_t irq=irq_save();
+    if (!pmm_bitmap || count == 0 || pmm_free_count < count || count>pmm_max_page) { irq_restore(irq); return 0; }
+    if (count == 1) { irq_restore(irq); return pmm_alloc_page(); }
+    uint64_t run=0, base=0;
+    for(uint64_t scanned=0;scanned<pmm_max_page;scanned++) {
+        uint64_t p=(pmm_next_hint+scanned)%pmm_max_page;
+        if(!bitmap_test(p)) { if(!run) base=p; run++; }
+        else run=0;
+        if(run==count) {
+            for(uint64_t j=0;j<count;j++) bitmap_set(base+j);
+            pmm_free_count-=count; pmm_next_hint=(base+count)%pmm_max_page;
+            irq_restore(irq); return (void*)(base*PAGE_SIZE);
         }
-
-        // success
-        pmm_next_hint = (cur_base / PAGE_SIZE + count) % pmm_max_page;
-        return (void*)cur_base;
+        if(p==pmm_max_page-1) run=0; /* never wrap a physical run */
     }
-    return 0;
+    irq_restore(irq); return 0;
 }
 
 void pmm_free_pages(void* addr, uint64_t count) {
-    if (!addr || count == 0) return;
+    if (!addr || count == 0 || ((uint64_t)addr&(PAGE_SIZE-1))) return;
+    uint64_t irq=irq_save();
     uint64_t start = (uint64_t)addr / PAGE_SIZE;
     for (uint64_t j = 0; j < count; j++) {
         uint64_t p = start + j;
-        if (p < pmm_max_page && bitmap_test(p)) {
+        if (p < pmm_max_page && page_is_usable(p) && bitmap_test(p)) {
             bitmap_clear(p);
             pmm_free_count++;
         }
     }
+    irq_restore(irq);
 }
 
 uint64_t memory_get_free_pages(void) {

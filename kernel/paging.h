@@ -1,5 +1,6 @@
 #pragma once
 #include <stdint.h>
+#define PAGING_SHARED (1ULL<<9)
 
 void paging_init(void);
 uint64_t paging_create_user_address_space(void);
@@ -12,6 +13,7 @@ int paging_map_page(uint64_t virt, uint64_t phys, uint64_t flags);
 int paging_map_page_in(uint64_t cr3, uint64_t virt, uint64_t phys, uint64_t flags);
 int paging_user_range_valid(uint64_t cr3, uint64_t addr, uint64_t size, int write_access);
 uint64_t paging_translate_in(uint64_t cr3, uint64_t virt, uint64_t* flags);
+uint64_t paging_unmap_page_in(uint64_t cr3, uint64_t virt, uint64_t* flags);
 
 // Get the physical address of the current PML4 (for CR3).
 uint64_t paging_get_cr3(void);

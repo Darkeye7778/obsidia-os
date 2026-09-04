@@ -5,16 +5,21 @@
 #define PAGE_SIZE 4096
 #define HEAP_INITIAL_PAGES 16
 #define HEAP_ALIGN 16
-#define BLOCK_MAGIC 0xA11C0C0AULL
+#define BLOCK_FREE_MAGIC  0xF4EEB10CF4EEB10CULL
+#define BLOCK_ALLOC_MAGIC 0xA110CA7EA110CA7EULL
 
 typedef struct block_header {
     uint64_t magic;
     uint64_t size;              // user payload size (not including header)
     struct block_header* next;  // next in free list (0 if allocated or last)
+    uint64_t reserved;          // keeps returned storage 16-byte aligned
 } block_t;
 
 static block_t* free_list = 0;
 static uint8_t* heap_arena_end = 0;
+
+static uint64_t irq_save(void) { uint64_t f; __asm__ volatile("pushfq; pop %0; cli":"=r"(f)::"memory"); return f; }
+static void irq_restore(uint64_t f) { if(f&(1ULL<<9)) __asm__ volatile("sti":::"memory"); }
 
 static uint64_t align_up(uint64_t value, uint64_t alignment) {
     return (value + alignment - 1) & ~(alignment - 1);
@@ -74,7 +79,7 @@ void heap_init(void) {
     uint64_t payload = arena_size - sizeof(block_t);
     payload = (payload / HEAP_ALIGN) * HEAP_ALIGN;
 
-    first->magic = BLOCK_MAGIC;
+    first->magic = BLOCK_FREE_MAGIC;
     first->size = payload;
     first->next = 0;
 
@@ -94,7 +99,7 @@ static int expand_heap(uint64_t needed) {
     uint64_t payload = block_total - sizeof(block_t);
     payload = (payload / HEAP_ALIGN) * HEAP_ALIGN;
 
-    new_block->magic = BLOCK_MAGIC;
+    new_block->magic = BLOCK_FREE_MAGIC;
     new_block->size = payload;
     new_block->next = 0;
 
@@ -103,7 +108,7 @@ static int expand_heap(uint64_t needed) {
     return 1;
 }
 
-void* kmalloc(uint64_t size) {
+static void* kmalloc_locked(uint64_t size) {
     if (size == 0) return 0;
 
     if (!free_list) {
@@ -113,12 +118,13 @@ void* kmalloc(uint64_t size) {
 
     size = align_up(size, HEAP_ALIGN);
 
+retry:
     // First fit
     block_t* prev = 0;
     block_t* cur = free_list;
 
     while (cur) {
-        if (cur->magic != BLOCK_MAGIC) {
+        if (cur->magic != BLOCK_FREE_MAGIC) {
             // corruption guard
             return 0;
         }
@@ -129,7 +135,7 @@ void* kmalloc(uint64_t size) {
             if (remaining >= sizeof(block_t) + HEAP_ALIGN) {
                 // Split
                 block_t* new_free = (block_t*)((uint8_t*)cur + sizeof(block_t) + size);
-                new_free->magic = BLOCK_MAGIC;
+                new_free->magic = BLOCK_FREE_MAGIC;
                 new_free->size = remaining - sizeof(block_t);
                 new_free->next = cur->next;
 
@@ -145,7 +151,7 @@ void* kmalloc(uint64_t size) {
                 cur->next = 0;
             }
 
-            cur->magic = BLOCK_MAGIC; // keep for debug
+            cur->magic = BLOCK_ALLOC_MAGIC;
             return ptr_from_block(cur);
         }
 
@@ -158,21 +164,29 @@ void* kmalloc(uint64_t size) {
         return 0;
     }
 
-    // Retry once after expand (simple)
-    return kmalloc(size);
+    goto retry;
+}
+
+void* kmalloc(uint64_t size) {
+    uint64_t irq=irq_save();
+    void* p=kmalloc_locked(size);
+    irq_restore(irq);
+    return p;
 }
 
 void kfree(void* ptr) {
-    if (!ptr) return;
+    if (!ptr || ((uint64_t)ptr & (HEAP_ALIGN-1))) return;
+    uint64_t irq=irq_save();
 
     block_t* blk = block_from_ptr(ptr);
-    if (blk->magic != BLOCK_MAGIC) {
-        // double free or bad ptr guard
-        return;
+    if (blk->magic != BLOCK_ALLOC_MAGIC) {
+        irq_restore(irq);
+        return; // invalid pointer or double free
     }
 
     // Mark as free by putting in list (next will be set by insert)
-    blk->next = 0; // temp
+    blk->magic = BLOCK_FREE_MAGIC;
+    blk->next = 0;
     insert_free_block(blk);
 
     // Try coalescing with neighbors (the insert sorted helps)
@@ -186,4 +200,5 @@ void kfree(void* ptr) {
     if (p) {
         coalesce(p);
     }
+    irq_restore(irq);
 }

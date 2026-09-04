@@ -141,6 +141,8 @@ void idt_init(void) {
         // 0x8E = 64-bit interrupt gate, present, DPL=0
         idt_set_gate(v, (uint64_t)isr_stub_table[v], 0x8E, 0);
     }
+    /* A corrupt normal kernel stack must not prevent #DF diagnostics. */
+    idt_set_gate(8, (uint64_t)isr_stub_table[8], 0x8E, 1);
 
     // Special: syscall vector 0x80 (user callable, DPL=3)
     // We will set it later when syscall is ready, or set a placeholder now.
@@ -164,6 +166,8 @@ registers_t* isr_handler(registers_t* regs) {
         serial_write(" cr2="); serial_hex64(cr2);
         serial_write(" error="); serial_hex64(regs->error_code);
         serial_write(" cs="); serial_hex64(regs->cs);
+        serial_write(" taskring=");
+        outb(0x3F8,current_task?(char)('0'+current_task->ring):'?');
         serial_write("\n");
         if ((regs->cs & 3) == 3 && current_task && current_task->ring == 3) {
             serial_write("USER FAULT: terminating process\n");
@@ -188,7 +192,9 @@ registers_t* isr_handler(registers_t* regs) {
             handlers[vec](regs);
         }
         pic_send_eoi(irq);
-        if (irq == 0) return task_schedule_from_interrupt(regs);
+        if (irq == 0 && (((regs->cs & 3) == 3) ||
+                         (current_task && current_task->state != TASK_RUNNING)))
+            return task_schedule_from_interrupt(regs);
     } else {
         // Other (including 0x80 before syscall ready)
         if (handlers[vec]) {

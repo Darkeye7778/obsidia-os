@@ -8,6 +8,10 @@
 #include "usercopy.h"
 #include "drivers/keyboard.h"
 #include "vfs/vfs.h"
+#include "memory/memory.h"
+#include "memory/heap.h"
+#include "object.h"
+#include "resource.h"
 #include <stdint.h>
 
 extern void serial_write(const char* str);
@@ -22,19 +26,19 @@ static int64_t console_write_user(uint64_t src, uint64_t len) {
     return (int64_t)done;
 }
 
-static int64_t vfs_write_user(vfs_node_t* n,uint64_t off,uint64_t src,uint64_t len) {
+static int64_t vfs_write_user(open_file_t* f,uint64_t src,uint64_t len) {
     char buf[256]; uint64_t done=0;
     while(done<len) { uint64_t want=len-done; if(want>sizeof(buf)) want=sizeof(buf);
         if(!copy_from_user(buf,src+done,want)) return done?(int64_t)done:-1;
-        int64_t got=vfs_write(n,off+done,buf,want); if(got<=0) return done?(int64_t)done:got;
+        int64_t got=vfs_file_write(f,buf,want); if(got<=0) return done?(int64_t)done:got;
         done+=(uint64_t)got; if((uint64_t)got<want) break;
     } return (int64_t)done;
 }
 
-static int64_t vfs_read_user(vfs_node_t* n,uint64_t off,uint64_t dst,uint64_t len) {
+static int64_t vfs_read_user(open_file_t* f,uint64_t dst,uint64_t len) {
     char buf[256]; uint64_t done=0;
     while(done<len) { uint64_t want=len-done; if(want>sizeof(buf)) want=sizeof(buf);
-        int64_t got=vfs_read(n,off+done,buf,want); if(got<=0) return done?(int64_t)done:got;
+        int64_t got=vfs_file_read(f,buf,want); if(got<=0) return done?(int64_t)done:got;
         if(!copy_to_user(dst+done,buf,(uint64_t)got)) return done?(int64_t)done:-1;
         done+=(uint64_t)got; if((uint64_t)got<want) break;
     } return (int64_t)done;
@@ -54,7 +58,7 @@ static void syscall_handler(registers_t* regs) {
             const char* buf = (const char*)regs->rdi;
             uint64_t len = regs->rsi;
             if (!current_task || current_task->ring != 3 || len > 65536 ||
-                (len && !paging_user_range_valid(current_task->cr3, (uint64_t)buf, len, 0))) {
+                (len && !paging_user_range_valid(current_task->process->cr3, (uint64_t)buf, len, 0))) {
                 regs->rax = (uint64_t)-1;
                 break;
             }
@@ -73,7 +77,7 @@ static void syscall_handler(registers_t* regs) {
 
         case SYS_FBINFO: {
             fb_info_t* out = (fb_info_t*)regs->rdi;
-            if (current_task && paging_user_range_valid(current_task->cr3,
+            if (current_task && paging_user_range_valid(current_task->process->cr3,
                     (uint64_t)out, sizeof(*out), 1)) {
                 uint64_t w=0, h=0, p=0;
                 uint32_t* addr = 0;
@@ -88,36 +92,39 @@ static void syscall_handler(registers_t* regs) {
 
         case SYS_FD_WRITE: {
             int fd=(int)regs->rdi; uint64_t u=regs->rsi, len=regs->rdx;
-            if (!current_task || fd<0 || fd>=16 || !current_task->fds[fd].used || len>65536 ||
-                (len && !paging_user_range_valid(current_task->cr3,u,len,0))) { regs->rax=(uint64_t)-1; break; }
+            process_t* p=current_task?current_task->process:0;
+            if (!p || fd<0 || fd>=MAX_FDS || !p->fds[fd].used || len>65536 ||
+                (len && !paging_user_range_valid(p->cr3,u,len,0))) { regs->rax=(uint64_t)-1; break; }
             if (fd==1 || fd==2) { regs->rax=(uint64_t)console_write_user(u,len); break; }
-            vfs_node_t* n=(vfs_node_t*)current_task->fds[fd].object;
-            int64_t r=vfs_write_user(n,current_task->fds[fd].offset,u,len);
-            if(r>0) current_task->fds[fd].offset+=(uint64_t)r; regs->rax=(uint64_t)r; break;
+            open_file_t* f=(open_file_t*)p->fds[fd].object;
+            regs->rax=(uint64_t)vfs_write_user(f,u,len); break;
         }
         case SYS_FD_READ: {
             int fd=(int)regs->rdi; uint64_t u=regs->rsi, len=regs->rdx;
-            if (!current_task || fd<0 || fd>=16 || !current_task->fds[fd].used || len>65536 ||
-                (len && !paging_user_range_valid(current_task->cr3,u,len,1))) { regs->rax=(uint64_t)-1; break; }
+            process_t* p=current_task?current_task->process:0;
+            if (!p || fd<0 || fd>=MAX_FDS || !p->fds[fd].used || len>65536 ||
+                (len && !paging_user_range_valid(p->cr3,u,len,1))) { regs->rax=(uint64_t)-1; break; }
             if (fd==0) {
                 int key=keyboard_try_getkey();
                 if (!key) { if(!logged_input_block){serial_write("FD: stdin reader blocked\n");logged_input_block=1;} regs->rip-=2; task_block_current(1,0); break; }
                 char c=(char)key; copy_to_user(u,&c,1); regs->rax=1; break;
             }
-            vfs_node_t* n=(vfs_node_t*)current_task->fds[fd].object;
-            int64_t r=vfs_read_user(n,current_task->fds[fd].offset,u,len);
+            open_file_t* f=(open_file_t*)p->fds[fd].object;
+            int64_t r=vfs_read_user(f,u,len);
             if(r>=0 && !logged_vfs_read){serial_write("FD: userspace VFS read completed\n");logged_vfs_read=1;}
-            if(r>0) current_task->fds[fd].offset+=(uint64_t)r; regs->rax=(uint64_t)r; break;
+            regs->rax=(uint64_t)r; break;
         }
         case SYS_OPEN: {
             char path[128]; if(!copy_string_from_user(path,regs->rdi,sizeof(path))){regs->rax=(uint64_t)-1;break;}
-            vfs_node_t* n=vfs_open(path); if(!n){regs->rax=(uint64_t)-1;break;}
-            int fd; for(fd=3;fd<16 && current_task->fds[fd].used;fd++); if(fd==16){regs->rax=(uint64_t)-1;break;}
-            current_task->fds[fd].used=1; current_task->fds[fd].object=n; current_task->fds[fd].offset=0; regs->rax=fd; break;
+            uint32_t flags=(uint32_t)regs->rsi;if(flags&~(VFS_OPEN_CREATE|VFS_OPEN_TRUNC)){regs->rax=(uint64_t)-1;break;}
+            open_file_t* n=vfs_open_file(path,flags); if(!n){regs->rax=(uint64_t)-1;break;}
+            process_t* p=current_task->process;
+            int fd; for(fd=3;fd<MAX_FDS && p->fds[fd].used;fd++); if(fd==MAX_FDS){regs->rax=(uint64_t)-1;break;}
+            p->fds[fd].used=1; p->fds[fd].object=n; p->fds[fd].offset=0; regs->rax=fd; break;
         }
         case SYS_CLOSE: {
-            int fd=(int)regs->rdi; if(fd<3||fd>=16||!current_task->fds[fd].used){regs->rax=(uint64_t)-1;break;}
-            vfs_close((vfs_node_t*)current_task->fds[fd].object); current_task->fds[fd].used=0; current_task->fds[fd].object=0; regs->rax=0; break;
+            process_t* p=current_task->process; int fd=(int)regs->rdi; if(fd<3||fd>=MAX_FDS||!p->fds[fd].used){regs->rax=(uint64_t)-1;break;}
+            vfs_file_release((open_file_t*)p->fds[fd].object); p->fds[fd].used=0; p->fds[fd].object=0; regs->rax=0; break;
         }
         case SYS_SLEEP:
             if(!logged_sleep){serial_write("SCHED: userspace timer sleep blocked\n");logged_sleep=1;}
@@ -125,7 +132,7 @@ static void syscall_handler(registers_t* regs) {
         case SYS_SPAWN: {
             char path[128];
             if(!copy_string_from_user(path,regs->rdi,sizeof(path))) { regs->rax=(uint64_t)-1; break; }
-            regs->rax=(uint64_t)process_spawn(path,current_task->pid); break;
+            regs->rax=(uint64_t)process_spawn(path,current_task->process->pid); break;
         }
         case SYS_WAIT: {
             int64_t status=0; int r=task_wait_child(regs->rdi,&status);
@@ -134,6 +141,44 @@ static void syscall_handler(registers_t* regs) {
             else regs->rax=regs->rdi;
             break;
         }
+        case SYS_GETPID: regs->rax=task_get_current_pid(); break;
+        case SYS_VM_MAP: {
+            process_t* p=current_task->process; uint64_t va=regs->rdi,pages=regs->rsi;
+            if(!va) va=0x0000001000000000ULL;
+            if(!pages||pages>4096||(va&4095)||va<0x10000||va>=0x0000800000000000ULL||
+               pages>(0x0000800000000000ULL-va)/4096){regs->rax=(uint64_t)-1;break;}
+            uint64_t len=pages*4096; int overlap=0;
+            for(vm_region_t* v=p->vm_regions;v;v=v->next)
+                if(va<v->start+v->length&&v->start<va+len){overlap=1;break;}
+            if(overlap){regs->rax=(uint64_t)-1;break;}
+            vm_region_t* vr=kmalloc(sizeof(*vr)); if(!vr){regs->rax=(uint64_t)-1;break;}
+            uint64_t done=0;
+            for(;done<pages;done++){void* frame=pmm_alloc_page(); if(!frame)break;
+                for(int i=0;i<4096;i++)((uint8_t*)frame)[i]=0;
+                uint64_t fl=1|4|(regs->rdx?2:0)|(1ULL<<63);
+                if(!paging_map_page_in(p->cr3,va+done*4096,(uint64_t)frame,fl)){pmm_free_page(frame);break;}}
+            if(done!=pages){while(done){done--;uint64_t ph=paging_unmap_page_in(p->cr3,va+done*4096,0);if(ph)pmm_free_page((void*)ph);}kfree(vr);regs->rax=(uint64_t)-1;break;}
+            vr->start=va;vr->length=len;vr->flags=regs->rdx?2:0;vr->kind=1;vr->object=0;vr->next=p->vm_regions;p->vm_regions=vr;regs->rax=va;break;
+        }
+        case SYS_VM_UNMAP: {
+            process_t* p=current_task->process;uint64_t va=regs->rdi,pages=regs->rsi;
+            vm_region_t* prev=0,*v=p->vm_regions;
+            while(v&&(v->start!=va||v->length!=pages*4096)){prev=v;v=v->next;}
+            if(!v){regs->rax=(uint64_t)-1;break;}
+            for(uint64_t i=0;i<pages;i++){uint64_t ph=paging_unmap_page_in(p->cr3,va+i*4096,0);if(ph)pmm_free_page((void*)ph);}
+            if(prev)prev->next=v->next;else p->vm_regions=v->next;kfree(v);regs->rax=0;break;
+        }
+        case SYS_HANDLE_CLOSE: regs->rax=(uint64_t)handle_close(current_task->process,regs->rdi);break;
+        case SYS_HANDLE_FIND: regs->rax=(uint64_t)handle_find(current_task->process,(uint32_t)regs->rdi);break;
+        case SYS_IPC_CREATE: regs->rax=(uint64_t)ipc_create(current_task->process);break;
+        case SYS_IPC_SEND:{char b[64];if(!regs->rdx||regs->rdx>64||!copy_from_user(b,regs->rsi,regs->rdx)){regs->rax=(uint64_t)-1;break;}int64_t n=ipc_send(current_task->process,regs->rdi,b,regs->rdx);if(n==-2){void*c=ipc_send_wait_channel(current_task->process,regs->rdi);if(!c){regs->rax=(uint64_t)-1;break;}regs->rip-=2;task_block_on(c);break;}regs->rax=(uint64_t)n;break;}
+        case SYS_IPC_RECV:{char b[64];uint64_t cap=regs->rdx;if(!cap||cap>64){regs->rax=(uint64_t)-1;break;}int64_t n=ipc_receive(current_task->process,regs->rdi,b,cap);if(n==-2){void*c=ipc_receive_wait_channel(current_task->process,regs->rdi);if(!c){regs->rax=(uint64_t)-1;break;}regs->rip-=2;task_block_on(c);break;}if(n>0&&!copy_to_user(regs->rsi,b,(uint64_t)n))n=-1;regs->rax=(uint64_t)n;break;}
+        case SYS_SHM_CREATE:regs->rax=(uint64_t)shm_create(current_task->process,regs->rdi);break;
+        case SYS_SHM_MAP:regs->rax=(uint64_t)shm_map(current_task->process,regs->rdi,regs->rsi,(int)regs->rdx);break;
+        case SYS_SHM_UNMAP:regs->rax=(uint64_t)shm_unmap(current_task->process,regs->rdi);break;
+        case SYS_SURFACE_CREATE:regs->rax=(uint64_t)surface_create(current_task->process,(uint32_t)regs->rdi,(uint32_t)regs->rsi);break;
+        case SYS_SURFACE_PRESENT:regs->rax=(uint64_t)surface_present(current_task->process,regs->rdi,(uint32_t)regs->rsi,(uint32_t)regs->rdx);break;
+        case SYS_INPUT_READ:{input_event_t event;int64_t n=resource_input_read(current_task->process,regs->rdi,&event);if(n==-2){kobject_t*o=handle_get(current_task->process,regs->rdi,KOBJ_INPUT,RIGHT_READ);if(!o){regs->rax=(uint64_t)-1;break;}regs->rip-=2;task_block_on(o);break;}if(n>0&&!copy_to_user(regs->rsi,&event,sizeof(event)))n=-1;regs->rax=(uint64_t)n;break;}
 
         default:
             regs->rax = (uint64_t)-1;

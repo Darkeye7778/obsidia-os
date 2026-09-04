@@ -1,7 +1,7 @@
 CC = gcc
 LD = ld
 
-CFLAGS = -ffreestanding -m64 -mcmodel=kernel -mno-red-zone -fno-pic -Ikernel
+CFLAGS = -ffreestanding -m64 -mcmodel=kernel -mno-red-zone -mgeneral-regs-only -fno-pic -Ikernel
 LDFLAGS = -nostdlib -z max-page-size=0x1000 -T linker.ld
 
 KERNEL = kernel.elf
@@ -43,6 +43,9 @@ OBJS = \
 	syscall.o \
 	usercopy.o \
 	elf.o \
+	object.o \
+	resource.o \
+	device.o \
 	gui_surface.o \
 	gui_window.o \
 	gui_compositor.o \
@@ -113,6 +116,15 @@ usercopy.o: kernel/usercopy.c
 elf.o: kernel/elf.c
 	$(CC) $(CFLAGS) -c kernel/elf.c -o elf.o
 
+object.o: kernel/object.c
+	$(CC) $(CFLAGS) -c kernel/object.c -o object.o
+
+resource.o: kernel/resource.c
+	$(CC) $(CFLAGS) -c kernel/resource.c -o resource.o
+
+device.o: kernel/device.c
+	$(CC) $(CFLAGS) -c kernel/device.c -o device.o
+
 block.o: kernel/block.c
 	$(CC) $(CFLAGS) -c kernel/block.c -o block.o
 
@@ -160,10 +172,10 @@ task.o: kernel/task.c
 context.o: kernel/context.asm
 	nasm -f elf64 kernel/context.asm -o context.o
 
-$(KERNEL): $(OBJS) userland/hello_user.bin
+$(KERNEL): $(OBJS) userland/hello_user.bin linker.ld
 	$(LD) $(LDFLAGS) $(OBJS) -o $(KERNEL)
 
-$(INITRD): initrd/hello_user.bin initrd/fault_user.bin initrd/input_user.bin initrd/init.elf initrd/hello.elf initrd/invalid.elf initrd/foundation.txt
+$(INITRD): initrd/hello_user.bin initrd/fault_user.bin initrd/input_user.bin initrd/init.elf initrd/hello.elf initrd/invalid.elf initrd/fpu.elf initrd/vm.elf initrd/ipc_client.elf initrd/ipc_sender.elf initrd/shm_client.elf initrd/shell.elf initrd/surface.elf initrd/fs.elf initrd/foundation.txt
 	python3 build_oar.py initrd $(INITRD)
 
 iso: $(LIMINE_DIR) $(LIMINE_BIN) $(KERNEL) $(INITRD)
@@ -201,7 +213,7 @@ obsidia_disk.img:
 
 clean:
 	rm -f *.o $(KERNEL) $(ISO)
-	rm -f userland/*.bin userland/*.elf initrd/hello_user.bin initrd/fault_user.bin initrd/input_user.bin initrd/init.elf initrd/hello.elf initrd/invalid.elf
+	rm -f userland/*.o userland/*.bin userland/*.elf initrd/hello_user.bin initrd/fault_user.bin initrd/input_user.bin initrd/init.elf initrd/hello.elf initrd/invalid.elf initrd/fpu.elf initrd/vm.elf initrd/ipc_client.elf initrd/ipc_sender.elf initrd/shm_client.elf initrd/shell.elf initrd/surface.elf initrd/fs.elf
 	rm -f $(INITRD)
 	rm -f obsidia_disk.img
 	# Note: source iso/ structure (for limine files) is preserved for self-contained builds; build will repopulate needed files from limine clone.
@@ -235,22 +247,24 @@ programs: userland/hello_user.bin initrd/hello_user.bin
 
 USER_CC      = gcc
 USER_CFLAGS  = -ffreestanding -m64 -mcmodel=large -mno-red-zone -fno-pic -fno-pie \
-               -mno-sse -mno-sse2 -mno-mmx -msoft-float \
                -nostdlib -nostdinc -Iuserland -Wall -Wextra -O2
 USER_LD      = ld
 USER_LDFLAGS = -T userland/user.ld -nostdlib
 
 # .c -> .bin (via temp ELF then strip to raw binary)
-userland/%.bin: userland/%.c userland/user.ld
+userland/%.bin: userland/%.c userland/user.ld userland/crt0.o
 	$(USER_CC) $(USER_CFLAGS) -c $< -o $(@:.bin=.tmp.o)
-	$(USER_LD) $(USER_LDFLAGS) $(@:.bin=.tmp.o) -o $(@:.bin=.tmp.elf)
+	$(USER_LD) $(USER_LDFLAGS) userland/crt0.o $(@:.bin=.tmp.o) -o $(@:.bin=.tmp.elf)
 	objcopy -O binary $(@:.bin=.tmp.elf) $@
 	rm -f $(@:.bin=.tmp.o) $(@:.bin=.tmp.elf)
 
-userland/%.elf: userland/%.c userland/user.ld
+userland/%.elf: userland/%.c userland/user.ld userland/crt0.o
 	$(USER_CC) $(USER_CFLAGS) -c $< -o $(@:.elf=.o)
-	$(USER_LD) $(USER_LDFLAGS) $(@:.elf=.o) -o $@
+	$(USER_LD) $(USER_LDFLAGS) userland/crt0.o $(@:.elf=.o) -o $@
 	rm -f $(@:.elf=.o)
+
+userland/crt0.o: userland/crt0.asm
+	nasm -f elf64 $< -o $@
 
 initrd/init.elf: userland/init.elf
 	cp $< $@
@@ -259,6 +273,30 @@ initrd/hello.elf: userland/hello_elf.elf
 	cp $< $@
 
 initrd/invalid.elf: userland/invalid_user.elf
+	cp $< $@
+
+initrd/fpu.elf: userland/fpu_user.elf
+	cp $< $@
+
+initrd/vm.elf: userland/vm_user.elf
+	cp $< $@
+
+initrd/ipc_client.elf: userland/ipc_client.elf
+	cp $< $@
+
+initrd/ipc_sender.elf: userland/ipc_sender.elf
+	cp $< $@
+
+initrd/shm_client.elf: userland/shm_client.elf
+	cp $< $@
+
+initrd/shell.elf: userland/shell_user.elf
+	cp $< $@
+
+initrd/surface.elf: userland/surface_user.elf
+	cp $< $@
+
+initrd/fs.elf: userland/fs_user.elf
 	cp $< $@
 
 # Convenience: build the C version of the demo

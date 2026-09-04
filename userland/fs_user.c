@@ -1,0 +1,3 @@
+#include "syscall.h"
+static int same(const char*a,const char*b,int n){for(int i=0;i<n;i++)if(a[i]!=b[i])return 0;return 1;}
+int obsidia_main(void){static const char data[]="hierarchical-open-file";char out[32];int64_t fd=sys_open_flags("/tmp/platform.txt",OS_OPEN_CREATE|OS_OPEN_TRUNC);if(fd<3)__asm__ volatile("ud2");if(sys_fd_write((int)fd,data,sizeof(data)-1)!=(int64_t)sizeof(data)-1||sys_close((int)fd))__asm__ volatile("ud2");fd=sys_open("/tmp/./platform.txt");if(fd<3||sys_read((int)fd,out,sizeof(data)-1)!=(int64_t)sizeof(data)-1||!same(out,data,sizeof(data)-1)||sys_close((int)fd))__asm__ volatile("ud2");if(sys_open_flags("/cannot-create-here",OS_OPEN_CREATE)>=0)__asm__ volatile("ud2");sys_fd_write(1,"vfs: hierarchical create/read passed\n",37);return 0;}

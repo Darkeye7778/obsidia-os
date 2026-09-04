@@ -28,6 +28,9 @@ isr_common:
 
     ; Pass pointer to the saved state on stack (the registers_t starts at [rsp] after pushes)
     mov rdi, rsp
+    ; SysV requires a 16-byte aligned RSP immediately before CALL.  Ring-0
+    ; interrupts do not necessarily arrive with the same frame size as ring-3.
+    and rsp, -16
     call isr_handler
     mov rsp, rax
 
@@ -93,7 +96,7 @@ ISR_NOERR 17
 ISR_NOERR 18
 ISR_NOERR 19
 ISR_NOERR 20
-ISR_NOERR 21
+ISR_ERR   21
 ISR_NOERR 22
 ISR_NOERR 23
 ISR_NOERR 24
@@ -101,8 +104,8 @@ ISR_NOERR 25
 ISR_NOERR 26
 ISR_NOERR 27
 ISR_NOERR 28
-ISR_NOERR 29
-ISR_NOERR 30
+ISR_ERR   29
+ISR_ERR   30
 ISR_NOERR 31
 
 ; IRQs 0-15 -> vectors 32-47 (after PIC remap)

@@ -2,6 +2,7 @@
 #include "idt.h"
 #include <stdint.h>
 #include "../task.h"
+#include "../resource.h"
 
 static int shift_down = 0;
 static int ctrl_down = 0;
@@ -123,7 +124,7 @@ static void keyboard_irq_handler(registers_t* regs) {
         else if (code == 0x4D) special = KEY_ARROW_RIGHT;
         else if (code == 0x48) special = KEY_ARROW_UP;
         else if (code == 0x50) special = KEY_ARROW_DOWN;
-        if (special) { enqueue_key(special); task_wake_input_waiters(); }
+        if (special) { enqueue_key(special); resource_input_push((uint32_t)special,1); task_wake_input_waiters(); }
         return;
     }
 
@@ -167,6 +168,7 @@ static void keyboard_irq_handler(registers_t* regs) {
     }
 
     enqueue_key(key);
+    resource_input_push((uint32_t)key,1);
     task_wake_input_waiters();
 }
 
@@ -185,9 +187,11 @@ void keyboard_init(void) {
 }
 
 int keyboard_getkey(void) {
-    // Wait for a key (works both polled early and IRQ later)
+    // Kernel consumers participate in the same scheduler-visible wait path;
+    // a non-preemptible ring-0 task must never sit in HLT while still RUNNING.
     while (keybuf_head == keybuf_tail) {
-        __asm__ volatile ("hlt");
+        task_block_current(1, 0);
+        task_yield();
     }
     return dequeue_key();
 }

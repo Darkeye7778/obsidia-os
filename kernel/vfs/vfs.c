@@ -1,6 +1,6 @@
 #include "vfs.h"
-#include "../console/console.h"
 #include "../memory/heap.h"
+#include "../console/console.h"
 #include "../initrd/initrd.h"
 #include <stddef.h>
 
@@ -116,6 +116,7 @@ static void add_child(vfs_node_t* parent, vfs_node_t* child) {
     child->next_sibling = parent->children;
     parent->children = child;
 }
+int vfs_attach_child(vfs_node_t* dir,vfs_node_t* child){if(!dir||dir->type!=VFS_DIR||!child)return-1;if(vfs_find_child(dir,child->name))return-1;add_child(dir,child);return 0;}
 
 int vfs_mount_initrd_from(uint64_t raw_addr, uint64_t raw_size) {
     serial_write("VFS mount: raw_addr=");
@@ -123,7 +124,7 @@ int vfs_mount_initrd_from(uint64_t raw_addr, uint64_t raw_size) {
     serial_write(" raw_size=");
     serial_write("present\n");
 
-    if (!raw_addr || !raw_size) {
+    if (!raw_addr || raw_size < sizeof(oar_header_t) || raw_addr > UINT64_MAX-raw_size) {
         serial_write("VFS mount fail: missing addr/size\n");
         return 0;
     }
@@ -164,12 +165,16 @@ int vfs_mount_initrd_from(uint64_t raw_addr, uint64_t raw_size) {
 
     serial_write("VFS: starting entry parse\n");
 
+    uint8_t* end=(uint8_t*)raw_addr+raw_size;
     for (uint32_t i = 0; i < header->file_count; i++) {
+        if(ptr>end||sizeof(oar_entry_t)>(uint64_t)(end-ptr)){serial_write("VFS: truncated entry header\n");return 0;}
         oar_entry_t* entry = (oar_entry_t*)ptr;
 
         serial_write("VFS: found entry\n");
 
         ptr += sizeof(oar_entry_t);
+
+        if(entry->name_len==0||entry->name_len>=128||entry->name_len>(uint64_t)(end-ptr)){serial_write("VFS: invalid entry name\n");return 0;}
 
         char namebuf[128];
         uint32_t nl = entry->name_len; if (nl >= 127) nl=127;
@@ -180,6 +185,8 @@ int vfs_mount_initrd_from(uint64_t raw_addr, uint64_t raw_size) {
         serial_write("\n");
         ptr += entry->name_len;
 
+        if(entry->size>(uint64_t)(end-ptr)){serial_write("VFS: truncated entry data\n");return 0;}
+
         uint8_t* content = ptr;
 
         vfs_node_type_t t = (entry->type == OAR_TYPE_DIR) ? VFS_DIR : VFS_FILE;
@@ -187,7 +194,7 @@ int vfs_mount_initrd_from(uint64_t raw_addr, uint64_t raw_size) {
         if (node) add_child(vfs_root, node);
 
         ptr += entry->size;
-        ptr = (uint8_t*)raw_addr + align8((uint64_t)(ptr - (uint8_t*)raw_addr));
+        uint64_t used=(uint64_t)(ptr-(uint8_t*)raw_addr);if(used>UINT64_MAX-7||align8(used)>raw_size){serial_write("VFS: invalid entry alignment\n");return 0;}ptr=(uint8_t*)raw_addr+align8(used);
 
         serial_write("vfs_root ptr=");
         serial_write_hex64((uint64_t)vfs_root);
@@ -219,9 +226,12 @@ vfs_node_t* vfs_find_child(vfs_node_t* dir, const char* name) {
 
 vfs_node_t* vfs_open(const char* path) {
     if (!path || !vfs_root) return 0;
-    while (*path == '/') path++;
-    if (*path == 0) return vfs_root;
-    return vfs_find_child(vfs_root, path);  // flat for now
+    vfs_node_t* node=vfs_root;while(*path=='/')path++;
+    while(*path){char component[128];uint32_t n=0;while(*path&&*path!='/'){if(n>=127)return 0;component[n++]=*path++;}component[n]=0;while(*path=='/')path++;
+        if(n==1&&component[0]=='.')continue;
+        if(n==2&&component[0]=='.'&&component[1]=='.'){if(node->parent)node=node->parent;continue;}
+        node=vfs_find_child(node,component);if(!node)return 0;
+    }return node;
 }
 
 int64_t vfs_read(vfs_node_t* node, uint64_t offset, void* buf, uint64_t len) {
@@ -253,6 +263,13 @@ vfs_node_t* vfs_create(vfs_node_t* dir, const char* name, vfs_node_type_t type) 
 void vfs_close(vfs_node_t* node) {
     if (node && node->ops && node->ops->close) node->ops->close(node);
 }
+
+static vfs_node_t* create_path_file(const char* path){char parent_path[128],name[128];uint32_t length=0;while(path[length]){if(length>=127)return 0;length++;}while(length&&path[length-1]=='/')length--;if(!length)return 0;uint32_t split=length;while(split&&path[split-1]!='/')split--;uint32_t nn=length-split;if(!nn||nn>=128)return 0;for(uint32_t i=0;i<nn;i++)name[i]=path[split+i];name[nn]=0;if(split==0){parent_path[0]='/';parent_path[1]=0;}else{uint32_t pn=split;while(pn>1&&path[pn-1]=='/')pn--;for(uint32_t i=0;i<pn;i++)parent_path[i]=path[i];parent_path[pn]=0;}vfs_node_t*parent=vfs_open(parent_path);if(!parent||parent->type!=VFS_DIR)return 0;return vfs_create(parent,name,VFS_FILE);}
+open_file_t* vfs_open_file(const char* path,uint32_t flags){vfs_node_t*n=vfs_open(path);if(!n&&(flags&VFS_OPEN_CREATE))n=create_path_file(path);if(!n||n->type!=VFS_FILE)return 0;if((flags&VFS_OPEN_TRUNC)&&n->ops&&n->ops->write)n->size=0;open_file_t*f=kmalloc(sizeof(*f));if(!f)return 0;*f=(open_file_t){n,0,flags,1};return f;}
+void vfs_file_retain(open_file_t*f){if(f)f->refs++;}
+void vfs_file_release(open_file_t*f){if(f&&f->refs&&!--f->refs){vfs_close(f->node);kfree(f);}}
+int64_t vfs_file_read(open_file_t*f,void*b,uint64_t n){if(!f)return-1;int64_t r=vfs_read(f->node,f->offset,b,n);if(r>0)f->offset+=(uint64_t)r;return r;}
+int64_t vfs_file_write(open_file_t*f,const void*b,uint64_t n){if(!f)return-1;int64_t r=vfs_write(f->node,f->offset,b,n);if(r>0)f->offset+=(uint64_t)r;return r;}
 
 void vfs_list_mounts(void) {
     console_print("Mounts:\n  / (initrd/OAR read-only)\n  /tmp (ramfs writable if mounted)\n");

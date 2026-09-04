@@ -1,0 +1,2 @@
+#include "syscall.h"
+int obsidia_main(void){int64_t h=os_surface_create(48,48);if(h<0)__asm__ volatile("ud2");uint32_t*p=os_shm_map((uint64_t)h,(void*)0x5300000000ULL,1);if(p==(void*)-1)__asm__ volatile("ud2");for(uint32_t y=0;y<48;y++)for(uint32_t x=0;x<48;x++)p[y*48+x]=((x^y)&8)?0x00ff9f1c:0x00204080;if(os_surface_present((uint64_t)h,1160,32)||os_shm_unmap(p)||os_handle_close((uint64_t)h))__asm__ volatile("ud2");sys_fd_write(1,"surface: controlled present passed\n",35);return 0;}
