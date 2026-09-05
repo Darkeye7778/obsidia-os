@@ -14,3 +14,5 @@ int handle_close(process_t* p,uint64_t handle);
 void handles_inherit(process_t* child,process_t* parent);
 void handles_close_all(process_t* p);
 int64_t handle_find(process_t* p,uint32_t type);
+int64_t handle_duplicate(process_t* process, uint64_t handle, uint64_t rights, int inheritable);
+int handle_export(process_t* process, uint64_t handle, uint32_t rights, kobject_t** object_out, uint32_t* rights_out);
