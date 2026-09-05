@@ -13,3 +13,16 @@ limine/
 # OS specific
 .DS_Store
 Thumbs.db
+
+# Obsidia reorganized build outputs
+/build/
+/third_party/limine/
+
+# Legacy root-level generated files
+/*.o
+/kernel.elf
+/obsidia.iso
+/obsidia_disk.img
+/initrd.oar
+/initrd.tar
+/iso/
