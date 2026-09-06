@@ -9,12 +9,24 @@
 #define IPC_MESSAGES 8
 #define IPC_MESSAGE_BYTES 64
 
-typedef struct { kobject_t base; uint8_t data[IPC_MESSAGES][IPC_MESSAGE_BYTES]; uint8_t len[IPC_MESSAGES]; uint8_t head, tail, count; } ipc_t;
+typedef struct {
+    kobject_t base;
+    uint8_t data[IPC_MESSAGES][IPC_MESSAGE_BYTES];
+    uint8_t len[IPC_MESSAGES];
+    kobject_t* attachment[IPC_MESSAGES];
+    uint32_t attachment_rights[IPC_MESSAGES];
+    uint8_t head, tail, count;
+} ipc_t;
 typedef struct { kobject_t base; uint64_t pages; uint64_t* frames; uint32_t width, height; } shm_t;
 typedef struct { kobject_t base; input_event_t events[64]; uint8_t head,tail,count; } input_t;
 static input_t system_input = { .base = { KOBJ_INPUT, 1, 0 } };
+static ipc_t* system_service_port;
 
-static void ipc_destroy(kobject_t* object) { kfree(object); }
+static void ipc_destroy(kobject_t* object) {
+    ipc_t* endpoint=(ipc_t*)object;
+    for(uint32_t i=0;i<IPC_MESSAGES;i++)if(endpoint->attachment[i])object_release(endpoint->attachment[i]);
+    kfree(object);
+}
 static void shm_destroy(kobject_t* object) {
     shm_t* shm = (shm_t*)object;
     for (uint64_t i = 0; i < shm->pages; i++) pmm_free_page((void*)shm->frames[i]);
@@ -36,11 +48,44 @@ int64_t ipc_send(process_t* process, uint64_t handle, const void* data, uint64_t
     endpoint->len[endpoint->head]=(uint8_t)len; endpoint->head=(endpoint->head+1)%IPC_MESSAGES; endpoint->count++;
     task_wake_channel(&endpoint->count,0); return (int64_t)len;
 }
+int64_t ipc_send_handle(process_t* process,uint64_t handle,const void* data,uint64_t len,
+                        uint64_t attached,uint32_t rights) {
+    ipc_t* endpoint=(ipc_t*)handle_get(process,handle,KOBJ_IPC,RIGHT_WRITE);
+    kobject_t* object=0;uint32_t granted=0;
+    if(!endpoint||!len||len>IPC_MESSAGE_BYTES||endpoint->count==IPC_MESSAGES||
+       handle_export(process,attached,rights,&object,&granted)<0)return endpoint&&endpoint->count==IPC_MESSAGES?-2:-1;
+    uint8_t slot=endpoint->head;
+    for(uint64_t i=0;i<len;i++)endpoint->data[slot][i]=((const uint8_t*)data)[i];
+    endpoint->len[slot]=(uint8_t)len;endpoint->attachment[slot]=object;
+    endpoint->attachment_rights[slot]=granted;object_retain(object);
+    endpoint->head=(endpoint->head+1)%IPC_MESSAGES;endpoint->count++;
+    task_wake_channel(&endpoint->count,0);return(int64_t)len;
+}
 int64_t ipc_receive(process_t* process, uint64_t handle, void* data, uint64_t capacity) {
     ipc_t* endpoint=(ipc_t*)handle_get(process,handle,KOBJ_IPC,RIGHT_READ); if(!endpoint)return-1; if(!endpoint->count)return-2;
+    if(endpoint->attachment[endpoint->tail])return-3;
     uint64_t len=endpoint->len[endpoint->tail]; if(len>capacity)len=capacity;
     for(uint64_t i=0;i<len;i++)((uint8_t*)data)[i]=endpoint->data[endpoint->tail][i];
     endpoint->tail=(endpoint->tail+1)%IPC_MESSAGES; endpoint->count--;task_wake_channel(&endpoint->head,0);return (int64_t)len;
+}
+int64_t ipc_receive_handle(process_t* process,uint64_t handle,void* data,uint64_t capacity,
+                           int64_t* attached_out) {
+    ipc_t* endpoint=(ipc_t*)handle_get(process,handle,KOBJ_IPC,RIGHT_READ);if(!endpoint)return-1;if(!endpoint->count)return-2;
+    uint8_t slot=endpoint->tail;kobject_t* object=endpoint->attachment[slot];if(!object)return-3;
+    int64_t installed=handle_install(process,object,endpoint->attachment_rights[slot],0);if(installed<0)return-4;
+    uint64_t len=endpoint->len[slot];if(len>capacity)len=capacity;
+    for(uint64_t i=0;i<len;i++)((uint8_t*)data)[i]=endpoint->data[slot][i];
+    endpoint->attachment[slot]=0;endpoint->attachment_rights[slot]=0;object_release(object);
+    endpoint->tail=(endpoint->tail+1)%IPC_MESSAGES;endpoint->count--;task_wake_channel(&endpoint->head,0);
+    *attached_out=installed;return(int64_t)len;
+}
+int64_t service_port_open(process_t* process) {
+    if(!system_service_port){
+        system_service_port=kmalloc(sizeof(*system_service_port));if(!system_service_port)return-1;
+        for(uint64_t i=0;i<sizeof(*system_service_port);i++)((uint8_t*)system_service_port)[i]=0;
+        system_service_port->base=(kobject_t){KOBJ_IPC,1,ipc_destroy}; /* kernel bootstrap pin */
+    }
+    return handle_install(process,&system_service_port->base,RIGHT_READ|RIGHT_WRITE|RIGHT_DUP,0);
 }
 void* ipc_send_wait_channel(process_t* process,uint64_t handle){ipc_t*e=(ipc_t*)handle_get(process,handle,KOBJ_IPC,RIGHT_WRITE);return e?&e->head:0;}
 void* ipc_receive_wait_channel(process_t* process,uint64_t handle){ipc_t*e=(ipc_t*)handle_get(process,handle,KOBJ_IPC,RIGHT_READ);return e?&e->count:0;}

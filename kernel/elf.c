@@ -25,6 +25,18 @@ typedef struct __attribute__((packed)) {
     uint64_t filesz, memsz, align;
 } elf64_phdr_t;
 
+static int add_ok(uint64_t a, uint64_t b, uint64_t limit);
+
+int elf_probe(vfs_node_t* node) {
+    elf64_header_t h;
+    if (!node || node->type != VFS_FILE || node->size < sizeof(h) ||
+        vfs_read(node,0,&h,sizeof(h)) != (int64_t)sizeof(h)) return 0;
+    return h.ident[0]==0x7f && h.ident[1]=='E' && h.ident[2]=='L' && h.ident[3]=='F' &&
+        h.ident[4]==2 && h.ident[5]==1 && h.machine==62 && h.version==1 &&
+        h.phentsize==sizeof(elf64_phdr_t) && h.phnum &&
+        add_ok(h.phoff,(uint64_t)h.phnum*h.phentsize,node->size);
+}
+
 static int add_ok(uint64_t a, uint64_t b, uint64_t limit) {
     return a <= limit && b <= limit - a;
 }
@@ -65,6 +77,10 @@ int elf_load_process(vfs_node_t* node, uint64_t* cr3_out,
     int loaded = 0;
     for (uint16_t i=0; i<h->phnum; i++) {
         if (ph[i].type != PT_LOAD) continue;
+        if (!ph[i].memsz) {
+            if (ph[i].filesz) goto fail;
+            continue;
+        }
         if (ph[i].memsz < ph[i].filesz || !add_ok(ph[i].offset,ph[i].filesz,node->size) ||
             ph[i].vaddr < 0x10000 || !add_ok(ph[i].vaddr,ph[i].memsz,USER_TOP) ||
             ph[i].vaddr + ph[i].memsz > USER_STACK_BASE) goto fail;

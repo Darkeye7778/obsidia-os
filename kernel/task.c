@@ -8,6 +8,7 @@
 #include "vfs/vfs.h"
 #include "timer.h"
 #include "elf.h"
+#include "exec/image.h"
 #include "object.h"
 #include "resource.h"
 #include <stddef.h>
@@ -38,9 +39,7 @@ static void serial_dec(uint64_t n) {
     serial_write(&b[i]);
 }
 
-#define USER_CODE_VA   0x400000ULL
-#define USER_STACK_VA  0x300000ULL
-#define USER_STACK_PAGES 4
+#define USER_STACK_PAGES 8
 
 static void clear_task(task_t* t) {
     for (uint64_t i = 0; i < sizeof(*t); i++) ((uint8_t*)t)[i] = 0;
@@ -197,7 +196,7 @@ static task_t* task_create_user_thread_for(process_t* process, uint64_t entry_po
         return 0;
     }
 
-    t->ustack_base = USER_STACK_VA;
+    t->ustack_base = ustack_top - USER_STACK_PAGES * 4096ULL;
     t->ustack_size = USER_STACK_PAGES * 4096;
 
     uint64_t stack_top = t->kstack_base + t->kstack_size;
@@ -393,56 +392,7 @@ void task_print_list(void) {
     }
 }
 
-// ===== Simple userland loader + ring3 launch for Phase 1 =====
-
-static int map_and_copy_user_binary(vfs_node_t* node, uint64_t cr3, uint64_t load_va) {
-    if (!node || node->size == 0) return 0;
-
-    uint8_t* temp = (uint8_t*)kmalloc(node->size + 4096);
-    if (!temp) return 0;
-
-    int64_t got = vfs_read(node, 0, temp, node->size);
-    if (got < (int64_t)node->size) {
-        // kfree not critical
-        return 0;
-    }
-
-    uint64_t remaining = node->size;
-    uint64_t offset = 0;
-    while (remaining > 0) {
-        uint64_t page_va = load_va + offset;
-        void* phys = pmm_alloc_page();
-        if (!phys) return 0;
-
-        // map with user, writable, present (single AS for phase 1)
-        uint64_t flags = (1ULL<<0) /*present*/ | (1ULL<<1) /*writable*/ | (1ULL<<2) /*user*/ ;
-        if (!paging_map_page_in(cr3, page_va, (uint64_t)phys, flags)) {
-            return 0;
-        }
-
-        uint64_t to_copy = (remaining > 4096) ? 4096 : remaining;
-        uint8_t* dst = (uint8_t*)phys;
-        for (uint64_t c=0; c<to_copy; c++) {
-            dst[c] = temp[offset + c];
-        }
-
-        offset += 4096;
-        remaining -= to_copy;
-    }
-    // kfree(temp);
-    return 1;
-}
-
-static uint64_t setup_user_stack(uint64_t cr3, uint64_t stack_va_base) {
-    for (int i = 0; i < USER_STACK_PAGES; i++) {
-        uint64_t va = stack_va_base + (uint64_t)i * 4096;
-        void* phys = pmm_alloc_page();
-        if (!phys) return 0;
-        uint64_t flags = (1ULL<<0) | (1ULL<<1) | (1ULL<<2);
-        if (!paging_map_page_in(cr3, va, (uint64_t)phys, flags)) return 0;
-    }
-    return stack_va_base + (uint64_t)USER_STACK_PAGES * 4096; // top
-}
+// ===== Executable dispatch and process creation =====
 
 int64_t process_spawn(const char* filename, uint64_t parent_pid) {
     vfs_node_t* node = vfs_open(filename);
@@ -456,23 +406,12 @@ int64_t process_spawn(const char* filename, uint64_t parent_pid) {
         return -1;
     }
 
-    uint8_t magic[4];
-    int is_elf = vfs_read(node,0,magic,sizeof(magic)) == 4 &&
-        magic[0]==0x7f && magic[1]=='E' && magic[2]=='L' && magic[3]=='F';
-    uint64_t process_cr3=0, entry=USER_CODE_VA, ustack_top=0;
-    if (is_elf) {
-        if (!elf_load_process(node,&process_cr3,&entry,&ustack_top)) {
-            serial_write("USER: invalid or unloadable ELF64 executable\n");
-            return -1;
-        }
-    } else {
-        process_cr3 = paging_create_user_address_space();
-        if (!process_cr3 || !map_and_copy_user_binary(node,process_cr3,USER_CODE_VA) ||
-            !(ustack_top=setup_user_stack(process_cr3,USER_STACK_VA))) {
-            serial_write("USER: raw executable mapping failed\n");
-            if (process_cr3) paging_destroy_user_address_space(process_cr3);
-            return -1;
-        }
+    exec_format_t format=exec_detect(node);
+    uint64_t process_cr3=0, entry=0, ustack_top=0;
+    if (format==EXEC_FORMAT_UNKNOWN ||
+        !exec_load(node,format,&process_cr3,&entry,&ustack_top)) {
+        serial_write("USER: executable rejected by image loader\n");
+        return -1;
     }
 
     // create the task struct (for 'tasks' listing and future scheduler)
@@ -493,7 +432,9 @@ int64_t process_spawn(const char* filename, uint64_t parent_pid) {
 
     console_print("Scheduled user program '");
     console_print(filename);
-    console_print(is_elf ? "' (ELF64).\n" : "' (raw compatibility image).\n");
+    console_print("' (");
+    console_print(exec_format_name(format));
+    console_print(").\n");
     return (int64_t)proc->pid;
 }
 

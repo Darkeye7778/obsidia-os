@@ -30,6 +30,10 @@ void syscall_init(void);
 #define SYS_SURFACE_CREATE 23
 #define SYS_SURFACE_PRESENT 24
 #define SYS_INPUT_READ      25
+#define SYS_EXEC_DETECT     26
+#define SYS_SERVICE_PORT_OPEN 27
+#define SYS_IPC_SEND_HANDLE   28
+#define SYS_IPC_RECV_HANDLE   29
 
 // Simple fb info struct for user
 typedef struct {

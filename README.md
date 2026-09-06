@@ -1,5 +1,34 @@
 # Obsidia OS
 
+## Executable and desktop milestone
+
+Obsidia now has one content-driven application launch path with parallel image
+families:
+
+- ELF64 remains a bootstrap and development format.
+- OBSX v1 is Obsidia's independent, versioned native executable format. The
+  build uses ELF only as an intermediate and `tools/mkobs.py` writes segment
+  payloads and OBSX metadata; the runtime artifact is not an ELF wrapper.
+- `.exe` fixtures and applications are genuine PE/COFF. The current PE32+
+  x86_64 loader supports validated, import-free images at their preferred base.
+  PE32 is recognized but not executable yet. Imports fail with the first missing
+  module reported.
+
+Normal boot is `kernel -> init -> serviced -> displayd -> desktop`. `serviced`
+is a userspace named-service registry built on capability-preserving IPC handle
+transfer. The first desktop owns a shared-memory surface through controlled
+surface syscalls and remains blocked on userspace input when idle.
+
+Useful targets:
+
+```bash
+make             # production ISO
+make run         # production desktop boot
+make test-build  # separate regression ISO
+make test-run    # kernel/platform regression boot
+make legacy-raw  # build quarantined raw fixtures (not executable by spawn)
+```
+
 Custom hobby OS kernel built from scratch.
 
 ---

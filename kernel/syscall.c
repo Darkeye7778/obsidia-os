@@ -12,15 +12,17 @@
 #include "memory/heap.h"
 #include "object.h"
 #include "resource.h"
+#include "exec/image.h"
 #include <stdint.h>
 
 extern void serial_write(const char* str);
 static uint8_t logged_vfs_read, logged_input_block, logged_sleep, logged_wait;
 
 static int64_t console_write_user(uint64_t src, uint64_t len) {
-    char buf[256]; uint64_t done=0;
-    while(done<len) { uint64_t n=len-done; if(n>sizeof(buf)) n=sizeof(buf);
+    char buf[257]; uint64_t done=0;
+    while(done<len) { uint64_t n=len-done; if(n>sizeof(buf)-1) n=sizeof(buf)-1;
         if(!copy_from_user(buf,src+done,n)) return -1;
+        buf[n]=0; serial_write(buf);
         for(uint64_t i=0;i<n;i++) console_putc(buf[i]); done+=n;
     }
     return (int64_t)done;
@@ -179,6 +181,30 @@ static void syscall_handler(registers_t* regs) {
         case SYS_SURFACE_CREATE:regs->rax=(uint64_t)surface_create(current_task->process,(uint32_t)regs->rdi,(uint32_t)regs->rsi);break;
         case SYS_SURFACE_PRESENT:regs->rax=(uint64_t)surface_present(current_task->process,regs->rdi,(uint32_t)regs->rsi,(uint32_t)regs->rdx);break;
         case SYS_INPUT_READ:{input_event_t event;int64_t n=resource_input_read(current_task->process,regs->rdi,&event);if(n==-2){kobject_t*o=handle_get(current_task->process,regs->rdi,KOBJ_INPUT,RIGHT_READ);if(!o){regs->rax=(uint64_t)-1;break;}regs->rip-=2;task_block_on(o);break;}if(n>0&&!copy_to_user(regs->rsi,&event,sizeof(event)))n=-1;regs->rax=(uint64_t)n;break;}
+        case SYS_EXEC_DETECT: {
+            char path[128];
+            if(!copy_string_from_user(path,regs->rdi,sizeof(path))){regs->rax=EXEC_FORMAT_UNKNOWN;break;}
+            vfs_node_t* node=vfs_open(path);
+            regs->rax=node?(uint64_t)exec_detect(node):EXEC_FORMAT_UNKNOWN;
+            break;
+        }
+        case SYS_SERVICE_PORT_OPEN:regs->rax=(uint64_t)service_port_open(current_task->process);break;
+        case SYS_IPC_SEND_HANDLE:{
+            char b[64];uint64_t len=regs->rdx;
+            if(!len||len>64||!copy_from_user(b,regs->rsi,len)){regs->rax=(uint64_t)-1;break;}
+            int64_t n=ipc_send_handle(current_task->process,regs->rdi,b,len,regs->r10,(uint32_t)regs->r8);
+            if(n==-2){void*c=ipc_send_wait_channel(current_task->process,regs->rdi);if(!c){regs->rax=(uint64_t)-1;break;}regs->rip-=2;task_block_on(c);break;}
+            regs->rax=(uint64_t)n;break;
+        }
+        case SYS_IPC_RECV_HANDLE:{
+            char b[64];uint64_t cap=regs->rdx;int64_t installed=-1;
+            if(!cap||cap>64||!paging_user_range_valid(current_task->process->cr3,regs->rsi,cap,1)||
+               !paging_user_range_valid(current_task->process->cr3,regs->r10,sizeof(installed),1)){regs->rax=(uint64_t)-1;break;}
+            int64_t n=ipc_receive_handle(current_task->process,regs->rdi,b,cap,&installed);
+            if(n==-2){void*c=ipc_receive_wait_channel(current_task->process,regs->rdi);if(!c){regs->rax=(uint64_t)-1;break;}regs->rip-=2;task_block_on(c);break;}
+            if(n>0&&(!copy_to_user(regs->rsi,b,(uint64_t)n)||!copy_to_user(regs->r10,&installed,sizeof(installed)))){handle_close(current_task->process,(uint64_t)installed);n=-1;}
+            regs->rax=(uint64_t)n;break;
+        }
 
         default:
             regs->rax = (uint64_t)-1;

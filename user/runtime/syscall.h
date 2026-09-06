@@ -28,6 +28,10 @@
 #define SYS_SURFACE_CREATE 23
 #define SYS_SURFACE_PRESENT 24
 #define SYS_INPUT_READ      25
+#define SYS_EXEC_DETECT       26
+#define SYS_SERVICE_PORT_OPEN 27
+#define SYS_IPC_SEND_HANDLE   28
+#define SYS_IPC_RECV_HANDLE   29
 
 #define OS_OBJECT_INPUT 4
 typedef struct { uint32_t type, code; int32_t value; uint32_t reserved; uint64_t ticks; } os_input_event_t;
@@ -59,6 +63,10 @@ static inline uint64_t syscall(uint64_t num, uint64_t a1, uint64_t a2, uint64_t 
         : "rax", "rdi", "rsi", "rdx", "memory"
     );
     return ret;
+}
+static inline uint64_t syscall5(uint64_t num,uint64_t a1,uint64_t a2,uint64_t a3,uint64_t a4,uint64_t a5){
+    uint64_t ret;__asm__ volatile("mov %1,%%rax;mov %2,%%rdi;mov %3,%%rsi;mov %4,%%rdx;mov %5,%%r10;mov %6,%%r8;int $0x80;mov %%rax,%0"
+        :"=r"(ret):"r"(num),"r"(a1),"r"(a2),"r"(a3),"r"(a4),"r"(a5):"rax","rdi","rsi","rdx","r10","r8","memory");return ret;
 }
 
 /* Convenience wrappers matching the old asm demo */
@@ -124,3 +132,10 @@ static inline int64_t os_shm_unmap(void*va){return (int64_t)syscall(SYS_SHM_UNMA
 static inline int64_t os_surface_create(uint32_t w,uint32_t h){return (int64_t)syscall(SYS_SURFACE_CREATE,w,h,0);}
 static inline int64_t os_surface_present(uint64_t h,uint32_t x,uint32_t y){return (int64_t)syscall(SYS_SURFACE_PRESENT,h,x,y);}
 static inline int64_t os_input_read(uint64_t h,os_input_event_t*e){return (int64_t)syscall(SYS_INPUT_READ,h,(uint64_t)e,0);}
+static inline int64_t os_exec_detect(const char*path){return (int64_t)syscall(SYS_EXEC_DETECT,(uint64_t)path,0,0);}
+static inline int64_t os_service_port_open(void){return(int64_t)syscall(SYS_SERVICE_PORT_OPEN,0,0,0);}
+static inline int64_t os_ipc_send_handle(uint64_t ep,const void*b,uint64_t n,uint64_t attached,uint32_t rights){return(int64_t)syscall5(SYS_IPC_SEND_HANDLE,ep,(uint64_t)b,n,attached,rights);}
+static inline int64_t os_ipc_recv_handle(uint64_t ep,void*b,uint64_t n,int64_t*attached){return(int64_t)syscall5(SYS_IPC_RECV_HANDLE,ep,(uint64_t)b,n,(uint64_t)attached,0);}
+#define OS_RIGHT_READ 1U
+#define OS_RIGHT_WRITE 2U
+#define OS_RIGHT_DUP 8U
