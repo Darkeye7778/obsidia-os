@@ -361,6 +361,21 @@ uint64_t task_get_current_pid(void) {
     return current_task && current_task->process ? current_task->process->pid : 0;
 }
 
+int task_process_alive(uint64_t pid) {
+    if (!pid) return 0;
+    for (task_t* task=task_list_head; task; task=task->next)
+        if (task->process && task->process->pid==pid && task->state!=TASK_ZOMBIE)
+            return 1;
+    return 0;
+}
+
+int task_handle_has_remote(process_t* owner,uint64_t handle) {
+    kobject_t* object=handle_get(owner,handle,0,0);if(!object)return-1;
+    for(int p=0;p<MAX_PROCESSES;p++)if(processes[p].pid && &processes[p]!=owner && task_process_alive(processes[p].pid))
+        for(int h=0;h<MAX_HANDLES;h++)if(processes[p].handles[h].object==object)return 1;
+    return 0;
+}
+
 void task_print_list(void) {
     console_print("Tasks:\n");
     task_t* t = task_list_head;
@@ -419,7 +434,7 @@ int64_t process_spawn(const char* filename, uint64_t parent_pid) {
     if(!proc) { paging_destroy_user_address_space(process_cr3); return -1; }
     proc->cr3=process_cr3; proc->parent_pid=parent_pid;
     for(int pi=0;pi<MAX_PROCESSES;pi++)if(processes[pi].pid==parent_pid){handles_inherit(proc,&processes[pi]);break;}
-    if(kernel_process && parent_pid==kernel_process->pid) resource_grant_input(proc);
+    if(kernel_process && parent_pid==kernel_process->pid){resource_grant_input(proc);resource_grant_display_output(proc);}
     int ni=0; while(filename[ni]&&ni<TASK_NAME_LEN-1){proc->name[ni]=filename[ni];ni++;}
     task_t* ut = task_create_user_thread_for(proc, entry, ustack_top, filename);
     if (!ut) {

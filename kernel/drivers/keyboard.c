@@ -118,13 +118,16 @@ static void keyboard_irq_handler(registers_t* regs) {
 
     if (extended) {
         extended = 0;
-        if (released) return;
         int special = 0;
         if (code == 0x4B) special = KEY_ARROW_LEFT;
         else if (code == 0x4D) special = KEY_ARROW_RIGHT;
         else if (code == 0x48) special = KEY_ARROW_UP;
         else if (code == 0x50) special = KEY_ARROW_DOWN;
-        if (special) { enqueue_key(special); resource_input_push((uint32_t)special,1); task_wake_input_waiters(); }
+        if (special) {
+            if(!released)enqueue_key(special);
+            resource_input_push(INPUT_EVENT_KEY,(uint32_t)special,released?0:1);
+            if(!released)task_wake_input_waiters();
+        }
         return;
     }
 
@@ -140,10 +143,6 @@ static void keyboard_irq_handler(registers_t* regs) {
 
     if (code == 0x3A && !released) {
         caps_lock = !caps_lock;
-        return;
-    }
-
-    if (released) {
         return;
     }
 
@@ -167,9 +166,9 @@ static void keyboard_irq_handler(registers_t* regs) {
         else return;
     }
 
-    enqueue_key(key);
-    resource_input_push((uint32_t)key,1);
-    task_wake_input_waiters();
+    if(!released)enqueue_key(key);
+    resource_input_push(INPUT_EVENT_KEY,(uint32_t)key,released?0:1);
+    if(!released)task_wake_input_waiters();
 }
 
 int keyboard_try_getkey(void) { return dequeue_key(); }

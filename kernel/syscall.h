@@ -34,11 +34,18 @@ void syscall_init(void);
 #define SYS_SERVICE_PORT_OPEN 27
 #define SYS_IPC_SEND_HANDLE   28
 #define SYS_IPC_RECV_HANDLE   29
+#define SYS_HANDLE_SET_INHERIT 30
+#define SYS_IPC_RECV_EX          31
+#define SYS_PROCESS_ALIVE        32
+#define SYS_IPC_TRY_SEND         33
+#define SYS_HANDLE_HAS_REMOTE    34
+#define SYS_IPC_TRY_SEND_HANDLE  35
+#define SYS_INPUT_TRY_READ       36
 
 // Simple fb info struct for user
 typedef struct {
     uint64_t width;
     uint64_t height;
     uint64_t pitch;
-    uint32_t* fb;   // virtual address (usable from user in our single-AS model)
+    uint32_t* fb;   // always null; physical display memory is never mapped to userspace
 } fb_info_t;

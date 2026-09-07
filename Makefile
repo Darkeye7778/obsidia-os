@@ -89,6 +89,13 @@ USER_CFLAGS := \
     -Wextra \
     -O2
 
+# Development-only compiled theme selection. Use a clean build when changing
+# this value so every libobsidia consumer selects the same semantic palette.
+THEME ?= default
+ifeq ($(THEME),alternate)
+USER_CFLAGS += -DOBSIDIA_THEME_ALTERNATE=1
+endif
+
 USER_LDFLAGS := \
     -T user/runtime/linker.ld \
     -nostdlib
@@ -142,7 +149,16 @@ $(eval $(call USER_ELF,apps/hello,user/apps/hello/main.c))
 $(eval $(call USER_OBSX,apps/native-smoke,user/apps/native-smoke/main.c))
 $(eval $(call USER_OBSX,apps/desktop,user/apps/desktop/main.c))
 $(eval $(call USER_OBSX,services/displayd,user/services/displayd/main.c))
+$(eval $(call USER_OBSX,services/inputd,user/services/inputd/main.c))
 $(eval $(call USER_OBSX,system/serviced,user/system/serviced/main.c))
+$(eval $(call USER_OBSX,system/settingsd,user/system/settingsd/main.c))
+$(eval $(call USER_OBSX,apps/window-demo,user/apps/window-demo/main.c))
+$(eval $(call USER_OBSX,apps/settings-demo,user/apps/settings-demo/main.c))
+$(eval $(call USER_OBSX,tests/window-negative,user/tests/window-negative.c))
+$(eval $(call USER_OBSX,tests/window-abrupt,user/tests/window-abrupt.c))
+$(eval $(call USER_OBSX,tests/window-lifecycle,user/tests/window-lifecycle.c))
+$(eval $(call USER_OBSX,tests/settings,user/tests/settings.c))
+$(eval $(call USER_OBSX,tests/settings-subscriber,user/tests/settings-subscriber.c))
 
 # ============================================================
 # Kernel/platform regression tests
@@ -157,6 +173,7 @@ $(eval $(call USER_ELF,tests/shm_client,user/tests/shm_client.c))
 $(eval $(call USER_ELF,tests/surface,user/tests/surface.c))
 $(eval $(call USER_ELF,tests/vm,user/tests/vm.c))
 $(eval $(call USER_ELF,tests/fault,user/tests/fault.c))
+$(eval $(call USER_ELF,tests/presentation,user/tests/presentation.c))
 
 $(USER_BUILD)/fixtures/win-smoke.exe: tools/mkpe_fixture.py
 >@mkdir -p $(dir $@)
@@ -196,7 +213,16 @@ USER_PROGRAMS := \
     $(USER_BUILD)/apps/native-smoke.obsx \
     $(USER_BUILD)/apps/desktop.obsx \
     $(USER_BUILD)/services/displayd.obsx \
+    $(USER_BUILD)/services/inputd.obsx \
     $(USER_BUILD)/system/serviced.obsx \
+    $(USER_BUILD)/system/settingsd.obsx \
+    $(USER_BUILD)/apps/window-demo.obsx \
+    $(USER_BUILD)/apps/settings-demo.obsx \
+    $(USER_BUILD)/tests/window-negative.obsx \
+    $(USER_BUILD)/tests/window-abrupt.obsx \
+    $(USER_BUILD)/tests/window-lifecycle.obsx \
+    $(USER_BUILD)/tests/settings.obsx \
+    $(USER_BUILD)/tests/settings-subscriber.obsx \
     $(USER_BUILD)/tests/fpu.elf \
     $(USER_BUILD)/tests/fs.elf \
     $(USER_BUILD)/tests/invalid.elf \
@@ -206,6 +232,7 @@ USER_PROGRAMS := \
     $(USER_BUILD)/tests/surface.elf \
     $(USER_BUILD)/tests/vm.elf \
     $(USER_BUILD)/tests/fault.elf \
+    $(USER_BUILD)/tests/presentation.elf \
     $(USER_BUILD)/fixtures/win-smoke.exe \
     $(USER_BUILD)/fixtures/imports.exe \
     $(USER_BUILD)/fixtures/malformed.exe \
@@ -235,7 +262,16 @@ rootfs: $(USER_PROGRAMS)
 >cp $(USER_BUILD)/apps/native-smoke.obsx $(ROOTFS_BUILD)/native-smoke.obsx
 >cp $(USER_BUILD)/apps/desktop.obsx     $(ROOTFS_BUILD)/desktop.obsx
 >cp $(USER_BUILD)/services/displayd.obsx $(ROOTFS_BUILD)/displayd.obsx
+>cp $(USER_BUILD)/services/inputd.obsx   $(ROOTFS_BUILD)/inputd.obsx
 >cp $(USER_BUILD)/system/serviced.obsx   $(ROOTFS_BUILD)/serviced.obsx
+>cp $(USER_BUILD)/system/settingsd.obsx  $(ROOTFS_BUILD)/settingsd.obsx
+>cp $(USER_BUILD)/apps/window-demo.obsx  $(ROOTFS_BUILD)/window-demo.obsx
+>cp $(USER_BUILD)/apps/settings-demo.obsx $(ROOTFS_BUILD)/settings-demo.obsx
+>cp $(USER_BUILD)/tests/window-negative.obsx $(ROOTFS_BUILD)/window-negative.obsx
+>cp $(USER_BUILD)/tests/window-abrupt.obsx $(ROOTFS_BUILD)/window-abrupt.obsx
+>cp $(USER_BUILD)/tests/window-lifecycle.obsx $(ROOTFS_BUILD)/window-lifecycle.obsx
+>cp $(USER_BUILD)/tests/settings.obsx $(ROOTFS_BUILD)/settings.obsx
+>cp $(USER_BUILD)/tests/settings-subscriber.obsx $(ROOTFS_BUILD)/settings-subscriber.obsx
 >cp $(USER_BUILD)/tests/fpu.elf         $(ROOTFS_BUILD)/fpu.elf
 >cp $(USER_BUILD)/tests/fs.elf          $(ROOTFS_BUILD)/fs.elf
 >cp $(USER_BUILD)/tests/invalid.elf     $(ROOTFS_BUILD)/invalid.elf
@@ -245,6 +281,7 @@ rootfs: $(USER_PROGRAMS)
 >cp $(USER_BUILD)/tests/surface.elf     $(ROOTFS_BUILD)/surface.elf
 >cp $(USER_BUILD)/tests/vm.elf          $(ROOTFS_BUILD)/vm.elf
 >cp $(USER_BUILD)/tests/fault.elf       $(ROOTFS_BUILD)/fault.elf
+>cp $(USER_BUILD)/tests/presentation.elf $(ROOTFS_BUILD)/presentation.elf
 >cp $(USER_BUILD)/fixtures/win-smoke.exe $(ROOTFS_BUILD)/win-smoke.exe
 >cp $(USER_BUILD)/fixtures/imports.exe  $(ROOTFS_BUILD)/imports.exe
 >cp $(USER_BUILD)/fixtures/malformed.exe $(ROOTFS_BUILD)/malformed.exe
@@ -363,7 +400,7 @@ obsidia_disk.img: $(DISK)
 # Top-level targets
 # ============================================================
 
-.PHONY: all build iso run test-build test-run clean distclean
+.PHONY: all build iso run run-linux run-windows test-build test-run clean distclean
 
 all: build
 
@@ -377,11 +414,13 @@ build: $(ISO)
 iso: $(ISO)
 
 run: $(ISO) $(DISK)
->qemu-system-x86_64 \
->    -cdrom $(ISO) \
->    -serial stdio \
->    -drive file=$(DISK),format=raw,if=ide \
->    -m 256
+>tools/run-qemu-interactive.sh auto $(ISO) $(DISK)
+
+run-linux: $(ISO) $(DISK)
+>tools/run-qemu-interactive.sh linux $(ISO) $(DISK)
+
+run-windows: $(ISO) $(DISK)
+>tools/run-qemu-interactive.sh windows $(ISO) $(DISK)
 
 test-build: $(TEST_ISO)
 >@echo "Regression ISO: $(TEST_ISO)"

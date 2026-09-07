@@ -30,8 +30,18 @@ int obsidia_main(void) {
     write("init: launching core services and desktop\n");
     if(obs_app_launch("serviced" OBS_NATIVE_EXEC_EXTENSION)<0)return 6;
     sys_sleep(2);
+    int64_t settings_authority=os_ipc_create();if(settings_authority<0||os_handle_set_inheritable((uint64_t)settings_authority,1)<0)return 6;
+    if(obs_app_launch("settingsd" OBS_NATIVE_EXEC_EXTENSION)<0)return 6;
+    os_handle_set_inheritable((uint64_t)settings_authority,0);sys_sleep(2);
+    int64_t output=os_handle_find(OS_OBJECT_DISPLAY_OUTPUT);if(output<0||os_handle_set_inheritable((uint64_t)output,1)<0)return 6;
     if(obs_app_launch("displayd" OBS_NATIVE_EXEC_EXTENSION)<0)return 6;
+    os_handle_set_inheritable((uint64_t)output,0);
     sys_sleep(2);
-    int64_t desktop=obs_app_launch("desktop" OBS_NATIVE_EXEC_EXTENSION);if(desktop<0)return 7;
+    int64_t input=os_handle_find(OS_OBJECT_INPUT);if(input<0||os_handle_set_inheritable((uint64_t)input,1)<0)return 8;
+    if(obs_app_launch("inputd" OBS_NATIVE_EXEC_EXTENSION)<0)return 8;
+    os_handle_set_inheritable((uint64_t)input,0);
+    sys_sleep(2);
+    os_handle_set_inheritable((uint64_t)settings_authority,1);
+    int64_t desktop=obs_app_launch("desktop" OBS_NATIVE_EXEC_EXTENSION);os_handle_set_inheritable((uint64_t)settings_authority,0);os_handle_close((uint64_t)settings_authority);if(desktop<0)return 7;
     int64_t status=0;sys_wait((uint64_t)desktop,&status);return (int)status;
 }

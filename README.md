@@ -14,10 +14,12 @@ families:
   PE32 is recognized but not executable yet. Imports fail with the first missing
   module reported.
 
-Normal boot is `kernel -> init -> serviced -> displayd -> desktop`. `serviced`
-is a userspace named-service registry built on capability-preserving IPC handle
-transfer. The first desktop owns a shared-memory surface through controlled
-surface syscalls and remains blocked on userspace input when idle.
+Normal boot is `kernel -> init -> serviced -> settingsd -> displayd -> inputd ->
+desktop`. `serviced` is a userspace named-service registry built on
+capability-preserving IPC handle transfer. `settingsd` owns typed live session
+configuration; displayd, desktop, and interested applications cache subscribed
+values rather than querying during painting. The desktop and application
+surfaces remain capability-separated from displayd's final output surface.
 
 Useful targets:
 
@@ -222,8 +224,22 @@ Key capabilities exposed for GUI work:
 ```bash
 make clean
 make -j4          # must succeed, produce obsidia.iso + kernel.elf
-make run          # QEMU: -cdrom obsidia.iso -serial stdio -drive ... -m 256
+make run          # Interactive QEMU; prefers Windows-native QEMU when invoked in WSL
+make run-linux    # Force Linux QEMU (WSL uses GTK through XWayland for relative input)
+make run-windows  # Force Windows-native QEMU from WSL
 ```
+
+On WSL, `make run` looks for `qemu-system-x86_64.exe` in `PATH` and the standard
+`Program Files\qemu` location. Set `OBSIDIA_QEMU_WINDOWS` to a Windows or WSL path
+when QEMU is installed elsewhere. If Windows QEMU is unavailable, `make run`
+falls back to Linux QEMU with `GDK_BACKEND=x11` and explicit GTK display options;
+this avoids the GTK/Wayland relative-pointer grab path used by WSLg. Automated
+`make test-run` continues to use Linux QEMU unchanged.
+
+`run_obsidia.bat` builds in the owning WSL distribution and then launches
+Windows-native QEMU directly. If a repository UNC path cannot be translated,
+set `OBSIDIA_WSL_REPO` to its Linux path. The Windows display backend defaults to
+SDL and can be overridden with `OBSIDIA_QEMU_WINDOWS_DISPLAY`.
 Expected:
 - Serial: "Starting kernel..." then "Paging enabled" (no repeats, no triple fault/reboot loop)
 - QEMU window: shell prompt appears ("This is real now.", "Type something:", ">")

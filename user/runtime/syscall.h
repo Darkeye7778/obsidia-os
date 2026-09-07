@@ -32,9 +32,19 @@
 #define SYS_SERVICE_PORT_OPEN 27
 #define SYS_IPC_SEND_HANDLE   28
 #define SYS_IPC_RECV_HANDLE   29
+#define SYS_HANDLE_SET_INHERIT 30
+#define SYS_IPC_RECV_EX          31
+#define SYS_PROCESS_ALIVE        32
+#define SYS_IPC_TRY_SEND         33
+#define SYS_HANDLE_HAS_REMOTE    34
+#define SYS_IPC_TRY_SEND_HANDLE  35
+#define SYS_INPUT_TRY_READ       36
 
+#define OS_OBJECT_IPC 1
 #define OS_OBJECT_INPUT 4
+#define OS_OBJECT_DISPLAY_OUTPUT 5
 typedef struct { uint32_t type, code; int32_t value; uint32_t reserved; uint64_t ticks; } os_input_event_t;
+typedef struct { int64_t attached; uint64_t sender_pid; } os_ipc_message_info_t;
 
 /* Simple fb info struct for user (matches kernel) */
 typedef struct {
@@ -123,19 +133,28 @@ static inline int64_t sys_vm_unmap(void* address,uint64_t pages) {
 }
 static inline int64_t os_handle_close(uint64_t h){return (int64_t)syscall(SYS_HANDLE_CLOSE,h,0,0);}
 static inline int64_t os_handle_find(uint64_t type){return (int64_t)syscall(SYS_HANDLE_FIND,type,0,0);}
+static inline int64_t os_handle_set_inheritable(uint64_t h,int yes){return(int64_t)syscall(SYS_HANDLE_SET_INHERIT,h,(uint64_t)yes,0);}
 static inline int64_t os_ipc_create(void){return (int64_t)syscall(SYS_IPC_CREATE,0,0,0);}
 static inline int64_t os_ipc_send(uint64_t h,const void*b,uint64_t n){return (int64_t)syscall(SYS_IPC_SEND,h,(uint64_t)b,n);}
+static inline int64_t os_ipc_try_send(uint64_t h,const void*b,uint64_t n){return (int64_t)syscall(SYS_IPC_TRY_SEND,h,(uint64_t)b,n);}
 static inline int64_t os_ipc_recv(uint64_t h,void*b,uint64_t n){return (int64_t)syscall(SYS_IPC_RECV,h,(uint64_t)b,n);}
 static inline int64_t os_shm_create(uint64_t pages){return (int64_t)syscall(SYS_SHM_CREATE,pages,0,0);}
 static inline void* os_shm_map(uint64_t h,void*va,int wr){return (void*)syscall(SYS_SHM_MAP,h,(uint64_t)va,wr);}
 static inline int64_t os_shm_unmap(void*va){return (int64_t)syscall(SYS_SHM_UNMAP,(uint64_t)va,0,0);}
 static inline int64_t os_surface_create(uint32_t w,uint32_t h){return (int64_t)syscall(SYS_SURFACE_CREATE,w,h,0);}
-static inline int64_t os_surface_present(uint64_t h,uint32_t x,uint32_t y){return (int64_t)syscall(SYS_SURFACE_PRESENT,h,x,y);}
+static inline int64_t os_surface_present(uint64_t output,uint64_t surface,uint32_t x,uint32_t y){return(int64_t)syscall5(SYS_SURFACE_PRESENT,output,surface,x,y,0);}
 static inline int64_t os_input_read(uint64_t h,os_input_event_t*e){return (int64_t)syscall(SYS_INPUT_READ,h,(uint64_t)e,0);}
+static inline int64_t os_input_try_read(uint64_t h,os_input_event_t*e){return (int64_t)syscall(SYS_INPUT_TRY_READ,h,(uint64_t)e,0);}
 static inline int64_t os_exec_detect(const char*path){return (int64_t)syscall(SYS_EXEC_DETECT,(uint64_t)path,0,0);}
 static inline int64_t os_service_port_open(void){return(int64_t)syscall(SYS_SERVICE_PORT_OPEN,0,0,0);}
 static inline int64_t os_ipc_send_handle(uint64_t ep,const void*b,uint64_t n,uint64_t attached,uint32_t rights){return(int64_t)syscall5(SYS_IPC_SEND_HANDLE,ep,(uint64_t)b,n,attached,rights);}
+static inline int64_t os_ipc_try_send_handle(uint64_t ep,const void*b,uint64_t n,uint64_t attached,uint32_t rights){return(int64_t)syscall5(SYS_IPC_TRY_SEND_HANDLE,ep,(uint64_t)b,n,attached,rights);}
 static inline int64_t os_ipc_recv_handle(uint64_t ep,void*b,uint64_t n,int64_t*attached){return(int64_t)syscall5(SYS_IPC_RECV_HANDLE,ep,(uint64_t)b,n,(uint64_t)attached,0);}
-#define OS_RIGHT_READ 1U
-#define OS_RIGHT_WRITE 2U
-#define OS_RIGHT_DUP 8U
+static inline int64_t os_ipc_recv_ex(uint64_t ep,void*b,uint64_t n,os_ipc_message_info_t*info,int nonblocking){return(int64_t)syscall5(SYS_IPC_RECV_EX,ep,(uint64_t)b,n,(uint64_t)info,(uint64_t)nonblocking);}
+static inline int64_t os_process_alive(uint64_t pid){return(int64_t)syscall(SYS_PROCESS_ALIVE,pid,0,0);}
+static inline int64_t os_handle_has_remote(uint64_t handle){return(int64_t)syscall(SYS_HANDLE_HAS_REMOTE,handle,0,0);}
+#define OS_RIGHT_READ    1U
+#define OS_RIGHT_WRITE   2U
+#define OS_RIGHT_MAP     4U
+#define OS_RIGHT_DUP     8U
+#define OS_RIGHT_PRESENT 16U

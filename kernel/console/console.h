@@ -16,3 +16,4 @@ void console_reset();
 // given pixel rectangle. This lets the demo window "uncover" shell/console
 // text when it moves away, without permanently losing the text underneath.
 void console_refresh_rect(int64_t x, int64_t y, uint64_t w, uint64_t h);
+void console_set_framebuffer_enabled(int enabled);

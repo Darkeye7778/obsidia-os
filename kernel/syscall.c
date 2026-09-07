@@ -179,7 +179,7 @@ static void syscall_handler(registers_t* regs) {
         case SYS_SHM_MAP:regs->rax=(uint64_t)shm_map(current_task->process,regs->rdi,regs->rsi,(int)regs->rdx);break;
         case SYS_SHM_UNMAP:regs->rax=(uint64_t)shm_unmap(current_task->process,regs->rdi);break;
         case SYS_SURFACE_CREATE:regs->rax=(uint64_t)surface_create(current_task->process,(uint32_t)regs->rdi,(uint32_t)regs->rsi);break;
-        case SYS_SURFACE_PRESENT:regs->rax=(uint64_t)surface_present(current_task->process,regs->rdi,(uint32_t)regs->rsi,(uint32_t)regs->rdx);break;
+        case SYS_SURFACE_PRESENT:regs->rax=(uint64_t)surface_present(current_task->process,regs->rdi,regs->rsi,(uint32_t)regs->rdx,(uint32_t)regs->r10);break;
         case SYS_INPUT_READ:{input_event_t event;int64_t n=resource_input_read(current_task->process,regs->rdi,&event);if(n==-2){kobject_t*o=handle_get(current_task->process,regs->rdi,KOBJ_INPUT,RIGHT_READ);if(!o){regs->rax=(uint64_t)-1;break;}regs->rip-=2;task_block_on(o);break;}if(n>0&&!copy_to_user(regs->rsi,&event,sizeof(event)))n=-1;regs->rax=(uint64_t)n;break;}
         case SYS_EXEC_DETECT: {
             char path[128];
@@ -205,6 +205,25 @@ static void syscall_handler(registers_t* regs) {
             if(n>0&&(!copy_to_user(regs->rsi,b,(uint64_t)n)||!copy_to_user(regs->r10,&installed,sizeof(installed)))){handle_close(current_task->process,(uint64_t)installed);n=-1;}
             regs->rax=(uint64_t)n;break;
         }
+        case SYS_HANDLE_SET_INHERIT:regs->rax=(uint64_t)handle_set_inheritable(current_task->process,regs->rdi,(int)regs->rsi);break;
+        case SYS_IPC_RECV_EX:{
+            char b[64];uint64_t cap=regs->rdx;struct{int64_t attached;uint64_t sender_pid;}info={-1,0};
+            if(!cap||cap>64||!paging_user_range_valid(current_task->process->cr3,regs->rsi,cap,1)||
+               !paging_user_range_valid(current_task->process->cr3,regs->r10,sizeof(info),1)){regs->rax=(uint64_t)-1;break;}
+            int64_t n=ipc_receive_ex(current_task->process,regs->rdi,b,cap,&info.attached,&info.sender_pid);
+            if(n==-2&&!regs->r8){void*c=ipc_receive_wait_channel(current_task->process,regs->rdi);if(!c){regs->rax=(uint64_t)-1;break;}regs->rip-=2;task_block_on(c);break;}
+            if(n>0&&(!copy_to_user(regs->rsi,b,(uint64_t)n)||!copy_to_user(regs->r10,&info,sizeof(info)))){if(info.attached>=0)handle_close(current_task->process,(uint64_t)info.attached);n=-1;}
+            regs->rax=(uint64_t)n;break;
+        }
+        case SYS_PROCESS_ALIVE:regs->rax=(uint64_t)task_process_alive(regs->rdi);break;
+        case SYS_IPC_TRY_SEND:{char b[64];if(!regs->rdx||regs->rdx>64||!copy_from_user(b,regs->rsi,regs->rdx)){regs->rax=(uint64_t)-1;break;}regs->rax=(uint64_t)ipc_send(current_task->process,regs->rdi,b,regs->rdx);break;}
+        case SYS_HANDLE_HAS_REMOTE:regs->rax=(uint64_t)task_handle_has_remote(current_task->process,regs->rdi);break;
+        case SYS_IPC_TRY_SEND_HANDLE:{
+            char b[64];uint64_t len=regs->rdx;
+            if(!len||len>64||!copy_from_user(b,regs->rsi,len)){regs->rax=(uint64_t)-1;break;}
+            regs->rax=(uint64_t)ipc_send_handle(current_task->process,regs->rdi,b,len,regs->r10,(uint32_t)regs->r8);break;
+        }
+        case SYS_INPUT_TRY_READ:{input_event_t event;int64_t n=resource_input_read(current_task->process,regs->rdi,&event);if(n>0&&!copy_to_user(regs->rsi,&event,sizeof(event)))n=-1;regs->rax=(uint64_t)n;break;}
 
         default:
             regs->rax = (uint64_t)-1;

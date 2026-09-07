@@ -12,4 +12,4 @@ void handles_inherit(process_t* c,process_t* p){for(int i=0;i<MAX_HANDLES;i++)if
 void handles_close_all(process_t* p){for(int i=0;i<MAX_HANDLES;i++)if(p->handles[i].object){object_release(p->handles[i].object);p->handles[i].object=0;}}
 int64_t handle_find(process_t* p,uint32_t type){for(int i=0;i<MAX_HANDLES;i++)if(p->handles[i].object&&p->handles[i].object->type==type)return (int64_t)encode(i,p->handles[i].generation);return -1;}
 int64_t handle_duplicate(process_t* process, uint64_t handle, uint64_t rights, int inheritable){kobject_t* object;uint32_t granted_rights;if(handle_export(process,handle,rights,&object,&granted_rights)<0){return -1;}return handle_install(process,object,granted_rights,inheritable);}
-
+int handle_set_inheritable(process_t* process,uint64_t handle,int inheritable){int index=decode(handle);if(!process||index<0)return-1;handle_entry_t*entry=&process->handles[index];if(!entry->object||entry->generation!=(uint32_t)(handle>>32)||!(entry->rights&RIGHT_DUP))return-1;entry->inheritable=inheritable?1:0;return 0;}

@@ -39,6 +39,9 @@ int os_service_register(
     uint64_t endpoint
 );
 
+/* Register while reducing the rights handed to connecting clients. */
+int os_service_register_restricted(const char* name,uint64_t endpoint,uint32_t client_rights);
+
 /*
  * Connect to a named service.
  *

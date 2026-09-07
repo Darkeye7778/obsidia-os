@@ -3,7 +3,7 @@
 struct process;
 typedef struct process process_t;
 
-enum { KOBJ_IPC=1, KOBJ_SHM=2, KOBJ_SURFACE=3, KOBJ_INPUT=4 };
+enum { KOBJ_IPC=1, KOBJ_SHM=2, KOBJ_SURFACE=3, KOBJ_INPUT=4, KOBJ_DISPLAY_OUTPUT=5 };
 enum { RIGHT_READ=1, RIGHT_WRITE=2, RIGHT_MAP=4, RIGHT_DUP=8, RIGHT_PRESENT=16 };
 typedef struct kobject { uint32_t type, refs; void (*destroy)(struct kobject*); } kobject_t;
 void object_retain(kobject_t* o);
@@ -16,3 +16,4 @@ void handles_close_all(process_t* p);
 int64_t handle_find(process_t* p,uint32_t type);
 int64_t handle_duplicate(process_t* process, uint64_t handle, uint64_t rights, int inheritable);
 int handle_export(process_t* process, uint64_t handle, uint32_t rights, kobject_t** object_out, uint32_t* rights_out);
+int handle_set_inheritable(process_t* process,uint64_t handle,int inheritable);

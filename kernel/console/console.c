@@ -12,6 +12,7 @@ static uint64_t edit_min_x = 0;
 static uint64_t edit_min_y = 0;
 static uint64_t edit_max_x = 0;
 static uint64_t edit_max_y = 0;
+static int framebuffer_enabled = 1;
 
 #define CONSOLE_MAX_COLS 256
 #define CONSOLE_MAX_ROWS 128
@@ -36,6 +37,7 @@ static void console_set_char(uint64_t x, uint64_t y, char c) {
 }
 
 static void console_draw_cell(uint64_t x, uint64_t y, uint32_t fg, uint32_t bg) {
+    if(!framebuffer_enabled)return;
     char c = console_get_char(x, y);
 
     fb_draw_char(x * FONT_WIDTH,
@@ -54,6 +56,7 @@ static void console_clear_cursor(void) {
 }
 
 void console_init(uint64_t width, uint64_t height) {
+    framebuffer_enabled=1;
     max_x = width / FONT_WIDTH;
     max_y = height / FONT_HEIGHT;
 
@@ -71,6 +74,8 @@ void console_init(uint64_t width, uint64_t height) {
 
     console_draw_cursor();
 }
+
+void console_set_framebuffer_enabled(int enabled){framebuffer_enabled=enabled?1:0;}
 
 void console_putc(char c) {
     console_clear_cursor();

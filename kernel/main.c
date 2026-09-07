@@ -16,6 +16,7 @@
 #include "task.h"
 #include "display.h"
 #include "device.h"
+#include "resource.h"
 
 __attribute__((used,section(".limine_requests")))
 static volatile struct limine_framebuffer_request framebuffer_request={
@@ -46,7 +47,9 @@ void kmain(void){
     paging_init();heap_init();vfs_init();
     if(module_request.response&&module_request.response->module_count){struct limine_file* initrd=module_request.response->modules[0];if(!vfs_mount_initrd_from((uint64_t)initrd->address,initrd->size))serial_write("VFS: initrd mount failed\n");}
     if(vfs_mount_ramfs("/tmp"))serial_write("VFS: ramfs mount failed\n");
-    idt_init();keyboard_init();timer_init();syscall_init();tasking_init();platform_devices_init();
+    idt_init();keyboard_init();timer_init();syscall_init();tasking_init();
+    serial_write(resource_input_self_test()?"INPUT: coalescing/order self-test passed\n":"INPUT: coalescing/order self-test FAILED\n");
+    platform_devices_init();
     task_create_kernel_thread(idle_task,"idle");
     enable_interrupts();
     serial_write("MAIN: launching userspace init ELF; free pages=");serial_u64(memory_get_free_pages());serial_write("\n");
