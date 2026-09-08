@@ -23,6 +23,8 @@ int64_t surface_create(process_t* p,uint32_t width,uint32_t height);
 int64_t surface_present(process_t* p,uint64_t output,uint64_t surface,uint32_t x,uint32_t y);
 int resource_grant_input(process_t* p);
 int resource_grant_display_output(process_t* p);
+int resource_grant_system_control(process_t* p);
+int resource_system_control(process_t* p,uint64_t handle,uint32_t action);
 void resource_input_push(uint32_t type,uint32_t code,int32_t value);
 void resource_input_push_motion(int32_t dx,int32_t dy);
 int64_t resource_input_read(process_t* p,uint64_t h,input_event_t* event);

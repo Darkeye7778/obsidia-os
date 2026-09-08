@@ -91,6 +91,6 @@ void mouse_init(void){
     }
     print_device_status("configured",device_status,device_resolution,device_sample_rate);
     idt_set_handler(44,mouse_irq_handler);if(!mouse_command(0xf4)){serial_write("PS/2 mouse enable failed\n");return;}
-    outb(0x21,inb(0x21)&(uint8_t)~(1<<2));outb(0xa1,inb(0xa1)&(uint8_t)~(1<<4));
+    interrupt_unmask_irq(12);
     serial_write("PS/2 mouse initialized: stream, scaling 1:1, resolution 8 counts/mm, sample 200 Hz\n");
 }

@@ -30,6 +30,8 @@ int obsidia_main(void) {
     write("init: launching core services and desktop\n");
     if(obs_app_launch("serviced" OBS_NATIVE_EXEC_EXTENSION)<0)return 6;
     sys_sleep(2);
+    if(obs_app_launch("appd" OBS_NATIVE_EXEC_EXTENSION)<0)return 6;
+    sys_sleep(2);
     int64_t settings_authority=os_ipc_create();if(settings_authority<0||os_handle_set_inheritable((uint64_t)settings_authority,1)<0)return 6;
     if(obs_app_launch("settingsd" OBS_NATIVE_EXEC_EXTENSION)<0)return 6;
     os_handle_set_inheritable((uint64_t)settings_authority,0);sys_sleep(2);

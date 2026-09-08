@@ -121,13 +121,20 @@ static void syscall_handler(registers_t* regs) {
             uint32_t flags=(uint32_t)regs->rsi;if(flags&~(VFS_OPEN_CREATE|VFS_OPEN_TRUNC)){regs->rax=(uint64_t)-1;break;}
             open_file_t* n=vfs_open_file(path,flags); if(!n){regs->rax=(uint64_t)-1;break;}
             process_t* p=current_task->process;
-            int fd; for(fd=3;fd<MAX_FDS && p->fds[fd].used;fd++); if(fd==MAX_FDS){regs->rax=(uint64_t)-1;break;}
+            int fd; for(fd=3;fd<MAX_FDS && p->fds[fd].used;fd++); if(fd==MAX_FDS){vfs_file_release(n);regs->rax=(uint64_t)-1;break;}
             p->fds[fd].used=1; p->fds[fd].object=n; p->fds[fd].offset=0; regs->rax=fd; break;
         }
         case SYS_CLOSE: {
             process_t* p=current_task->process; int fd=(int)regs->rdi; if(fd<3||fd>=MAX_FDS||!p->fds[fd].used){regs->rax=(uint64_t)-1;break;}
             vfs_file_release((open_file_t*)p->fds[fd].object); p->fds[fd].used=0; p->fds[fd].object=0; regs->rax=0; break;
         }
+        case SYS_FD_SYNC:{process_t*p=current_task->process;int fd=(int)regs->rdi;if(fd<3||fd>=MAX_FDS||!p->fds[fd].used){regs->rax=(uint64_t)-1;break;}regs->rax=(uint64_t)vfs_file_sync((open_file_t*)p->fds[fd].object);break;}
+        case SYS_RENAME:{char old_path[128],new_path[128];if(!copy_string_from_user(old_path,regs->rdi,sizeof(old_path))||!copy_string_from_user(new_path,regs->rsi,sizeof(new_path))){regs->rax=(uint64_t)-1;break;}regs->rax=(uint64_t)vfs_rename(old_path,new_path,(int)regs->rdx);break;}
+        case SYS_MKDIR:{char path[128];if(!copy_string_from_user(path,regs->rdi,sizeof(path))){regs->rax=(uint64_t)-1;break;}regs->rax=(uint64_t)vfs_mkdir(path);break;}
+        case SYS_UNLINK:{char path[128];if(!copy_string_from_user(path,regs->rdi,sizeof(path))){regs->rax=(uint64_t)-1;break;}regs->rax=(uint64_t)vfs_unlink(path,(int)regs->rsi);break;}
+        case SYS_STAT:{char path[128];vfs_stat_t result;if(!copy_string_from_user(path,regs->rdi,sizeof(path))||!paging_user_range_valid(current_task->process->cr3,regs->rsi,sizeof(result),1)||vfs_stat(path,&result)||!copy_to_user(regs->rsi,&result,sizeof(result))){regs->rax=(uint64_t)-1;break;}regs->rax=0;break;}
+        case SYS_READDIR:{char path[128];vfs_dirent_t result;if(!copy_string_from_user(path,regs->rdi,sizeof(path))||!paging_user_range_valid(current_task->process->cr3,regs->rdx,sizeof(result),1)){regs->rax=(uint64_t)-1;break;}int status=vfs_readdir(path,(uint32_t)regs->rsi,&result);if(status>0&&!copy_to_user(regs->rdx,&result,sizeof(result)))status=-1;regs->rax=(uint64_t)status;break;}
+        case SYS_SYSTEM_CONTROL:regs->rax=(uint64_t)resource_system_control(current_task->process,regs->rdi,(uint32_t)regs->rsi);break;
         case SYS_SLEEP:
             if(!logged_sleep){serial_write("SCHED: userspace timer sleep blocked\n");logged_sleep=1;}
             task_block_current(2,timer_get_ticks()+regs->rdi); regs->rax=0; break;
@@ -224,6 +231,12 @@ static void syscall_handler(registers_t* regs) {
             regs->rax=(uint64_t)ipc_send_handle(current_task->process,regs->rdi,b,len,regs->r10,(uint32_t)regs->r8);break;
         }
         case SYS_INPUT_TRY_READ:{input_event_t event;int64_t n=resource_input_read(current_task->process,regs->rdi,&event);if(n>0&&!copy_to_user(regs->rsi,&event,sizeof(event)))n=-1;regs->rax=(uint64_t)n;break;}
+        case SYS_PROCESS_INFO:{
+            task_process_info_t info={0};
+            int result=task_process_info(regs->rdi,&info);
+            if(result==0&&!copy_to_user(regs->rsi,&info,sizeof(info)))result=-1;
+            regs->rax=(uint64_t)result;break;
+        }
 
         default:
             regs->rax = (uint64_t)-1;

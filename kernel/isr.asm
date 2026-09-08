@@ -127,19 +127,25 @@ ISR_NOERR 46
 ISR_NOERR 47
 
 ; Syscall placeholder (vector 0x80 = 128). We can override the gate later for DPL=3.
+%assign vector_number 48
+%rep (128 - 48)
+ISR_NOERR vector_number
+%assign vector_number vector_number + 1
+%endrep
 ISR_NOERR 128
+
+%assign vector_number 129
+%rep (256 - 129)
+ISR_NOERR vector_number
+%assign vector_number vector_number + 1
+%endrep
 
 ; Table of entry points (used by idt.c to fill IDT)
 section .data
 global isr_stub_table
 isr_stub_table:
-    dq isr0, isr1, isr2, isr3, isr4, isr5, isr6, isr7
-    dq isr8, isr9, isr10, isr11, isr12, isr13, isr14, isr15
-    dq isr16, isr17, isr18, isr19, isr20, isr21, isr22, isr23
-    dq isr24, isr25, isr26, isr27, isr28, isr29, isr30, isr31
-    dq isr32, isr33, isr34, isr35, isr36, isr37, isr38, isr39
-    dq isr40, isr41, isr42, isr43, isr44, isr45, isr46, isr47
-    ; pad up to 128 for now (others can be added)
-    times (128 - 48) dq isr128   ; default to syscall stub for higher for simplicity in table
-    dq isr128                     ; vector 128 itself
-    ; (real code only installs up to 47 + 128 specially)
+%assign vector_number 0
+%rep 256
+    dq isr%+vector_number
+%assign vector_number vector_number + 1
+%endrep

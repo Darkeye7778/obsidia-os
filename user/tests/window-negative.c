@@ -11,5 +11,9 @@ int obsidia_main(void){
     if(os_ipc_send_handle((uint64_t)display,&bad,sizeof(bad),(uint64_t)reply,OS_RIGHT_WRITE|OS_RIGHT_DUP)!=(int64_t)sizeof(bad))return 3;
     obs_display_create_response_t response;int64_t attached=-1;int64_t received=os_ipc_recv_handle((uint64_t)reply,&response,sizeof(response),&attached);
     if(received!=-3||os_ipc_recv((uint64_t)reply,&response,sizeof(response))!=(int64_t)sizeof(response)||response.status>=0)return 4;
-    static const char passed[]="window-negative: invalid dimensions/operation rejected\n";sys_fd_write(1,passed,sizeof(passed)-1);return 0;
+    os_handle_close((uint64_t)reply);reply=os_ipc_create();if(reply<0)return 5;
+    obs_display_overlay_create_request_t overlay={OBS_DISPLAY_CREATE_SHELL_OVERLAY,0xffffffffU,240,160};
+    if(os_ipc_send_handle((uint64_t)display,&overlay,sizeof(overlay),(uint64_t)reply,OS_RIGHT_WRITE)!=(int64_t)sizeof(overlay))return 6;
+    if(os_ipc_recv((uint64_t)reply,&response,sizeof(response))!=(int64_t)sizeof(response)||response.status>=0)return 7;
+    static const char passed[]="window-negative: invalid dimensions/operation and foreign shell overlay rejected\n";sys_fd_write(1,passed,sizeof(passed)-1);return 0;
 }

@@ -179,10 +179,8 @@ void keyboard_init(void) {
     // Register our C handler for IRQ1 (vector 33 after PIC remap)
     idt_set_handler(33, keyboard_irq_handler);
 
-    // Unmask IRQ0 (timer bit0) and IRQ1 (keyboard bit1) on master PIC
-    uint8_t mask = inb(0x21);
-    mask &= ~((1<<0) | (1<<1));
-    outb(0x21, mask);
+    interrupt_unmask_irq(0);
+    interrupt_unmask_irq(1);
 }
 
 int keyboard_getkey(void) {

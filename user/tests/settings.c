@@ -7,11 +7,16 @@
 #include <obsidia/internal/settings_protocol.h>
 
 static int fail(int code){
-    static const char text[]="settings-test: FAILED\n";
+    static const char text[]="settings-test: FAILED code=";
+    char number[4];uint32_t length=0;
     sys_fd_write(1,text,sizeof(text)-1);
+    if(code>=10)number[length++]=(char)('0'+code/10);
+    number[length++]=(char)('0'+code%10);number[length++]='\n';
+    sys_fd_write(1,number,length);
     return code;
 }
 static void trace(const char*s){uint32_t n=0;while(s[n])n++;sys_fd_write(1,s,n);}
+static int same(const char*a,const char*b){while(*a&&*a==*b){a++;b++;}return *a==*b;}
 static obs_setting_value_t val(uint32_t type,uint32_t value){
     obs_setting_value_t v={0};v.type=type;v.u32=value;return v;
 }
@@ -33,11 +38,25 @@ int obsidia_main(void){
     os_handle_set_inheritable((uint64_t)authority,0);
     obs_settings_t settings,reader;
     if(obs_settings_connect_with_authority(&settings,(uint64_t)authority)<0||obs_settings_connect(&reader)<0)return fail(2);
+    obs_setting_value_t reset=val(OBS_SETTING_TYPE_ENUM,OBS_THEME_DEFAULT);
+    if(obs_settings_set(&settings,OBS_SETTING_APPEARANCE_THEME,&reset)<0)return fail(33);
+    reset=val(OBS_SETTING_TYPE_ENUM,OBS_PANEL_TOP);if(obs_settings_set(&settings,OBS_SETTING_PANEL_PRIMARY_EDGE,&reset)<0)return fail(34);
+    reset=val(OBS_SETTING_TYPE_U32,46);if(obs_settings_set(&settings,OBS_SETTING_PANEL_PRIMARY_SIZE,&reset)<0)return fail(35);
+    reset=val(OBS_SETTING_TYPE_U32,2);if(obs_settings_set(&settings,OBS_SETTING_APPEARANCE_TEXT_SCALE,&reset)<0)return fail(36);
+    obs_pinned_apps_t pins;
+    if(obs_settings_get_pinned_apps(&settings,&pins)<0)return fail(37);
+    while(pins.count){if(obs_settings_unpin_app(&settings,pins.ids[0])<0||obs_settings_get_pinned_apps(&settings,&pins)<0)return fail(38);}
+    if(obs_settings_pin_app(&settings,"org.obsidia.window-demo")<0)return fail(39);
     obs_setting_value_t got={0};
     if(obs_settings_get(&settings,OBS_SETTING_APPEARANCE_THEME,&got)<0||got.type!=OBS_SETTING_TYPE_ENUM||got.enumeration!=OBS_THEME_DEFAULT)return fail(3);
     if(obs_settings_get(&settings,OBS_SETTING_PANEL_PRIMARY_EDGE,&got)<0||got.enumeration!=OBS_PANEL_TOP)return fail(4);
     if(obs_settings_get(&settings,OBS_SETTING_PANEL_PRIMARY_SIZE,&got)<0||got.u32!=46)return fail(5);
     if(obs_settings_get(&settings,0x9999,&got)!=OBS_SETTINGS_UNKNOWN_ID)return fail(6);
+    if(obs_settings_get_pinned_apps(&settings,&pins)<0||pins.count!=1||!same(pins.ids[0],"org.obsidia.window-demo"))return fail(28);
+    if(obs_settings_pin_app(&reader,"org.obsidia.settings-demo")!=OBS_SETTINGS_DENIED||obs_settings_pin_app(&settings,"org.obsidia.missing")!=OBS_SETTINGS_INVALID_VALUE)return fail(29);
+    if(obs_settings_pin_app(&settings,"org.obsidia.settings-demo")<0||obs_settings_pin_app(&settings,"org.obsidia.settings-demo")<0||obs_settings_get_pinned_apps(&settings,&pins)<0||pins.count!=2||!same(pins.ids[0],"org.obsidia.window-demo")||!same(pins.ids[1],"org.obsidia.settings-demo"))return fail(30);
+    if(obs_settings_unpin_app(&settings,"org.obsidia.window-demo")<0||obs_settings_get_pinned_apps(&settings,&pins)<0||pins.count!=1||!same(pins.ids[0],"org.obsidia.settings-demo"))return fail(31);
+    if(obs_settings_unpin_app(&settings,"org.obsidia.settings-demo")<0||obs_settings_get_pinned_apps(&settings,&pins)<0||pins.count||obs_settings_pin_app(&settings,"org.obsidia.window-demo")<0)return fail(32);
 
     obs_setting_value_t v=val(OBS_SETTING_TYPE_U32,OBS_THEME_ALTERNATE);
     if(obs_settings_set(&settings,OBS_SETTING_APPEARANCE_THEME,&v)!=OBS_SETTINGS_WRONG_TYPE)return fail(7);
@@ -90,7 +109,7 @@ int obsidia_main(void){
     v=val(OBS_SETTING_TYPE_U32,2);
     if(obs_settings_set(&settings,OBS_SETTING_APPEARANCE_TEXT_SCALE,&v)<0)return fail(27);
     obs_settings_close(&settings);obs_settings_close(&reader);
-    static const char passed[]="settings-test: defaults, typed validation, authority, versioning, notifications and dead-subscriber cleanup passed\n";
+    static const char passed[]="settings-test: typed values, ordered pins, authority, notifications and cleanup passed\n";
     sys_fd_write(1,passed,sizeof(passed)-1);
     return 0;
 }

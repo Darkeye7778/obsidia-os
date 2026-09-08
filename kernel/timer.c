@@ -25,9 +25,7 @@ void timer_init(void) {
     idt_set_handler(32, timer_irq_handler);
 
     // Already unmasked in keyboard_init (bit 0), but ensure
-    uint8_t mask = inb(0x21);
-    mask &= ~(1 << 0);
-    outb(0x21, mask);
+    interrupt_unmask_irq(0);
 
     console_print("Timer (PIT) initialized (~100Hz)\n");
 }

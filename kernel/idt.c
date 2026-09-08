@@ -2,6 +2,7 @@
 #include "console/console.h"
 #include "gdt.h"
 #include "task.h"
+#include "apic.h"
 #include <stdint.h>
 
 extern void serial_write(const char* str);
@@ -84,6 +85,14 @@ void pic_send_eoi(uint8_t irq) {
     outb(0x20, 0x20);               // master
 }
 
+int interrupt_unmask_irq(uint8_t irq){
+    if(irq>=16)return-1;
+    if(apic_is_active())return apic_route_legacy_irq(irq,(uint8_t)(32+irq));
+    if(irq>=8){outb(0xA1,inb(0xA1)&(uint8_t)~(1U<<(irq-8)));outb(0x21,inb(0x21)&(uint8_t)~(1U<<2));}
+    else outb(0x21,inb(0x21)&(uint8_t)~(1U<<irq));
+    return 0;
+}
+
 // Remap PIC to vectors 32+ so exceptions (0-31) are free
 static void pic_remap(void) {
     uint8_t a1 = inb(0x21);
@@ -136,17 +145,16 @@ void idt_init(void) {
 
     pic_remap();
 
-    // Install stubs from asm for 0-47 (exceptions + IRQs 0-15)
-    for (uint8_t v = 0; v < 48; v++) {
+    // Every architecture vector has a correctly numbered safe entry. Device
+    // routing can therefore allocate vectors without aliasing the syscall stub.
+    for (uint16_t v = 0; v < 256; v++) {
         // 0x8E = 64-bit interrupt gate, present, DPL=0
-        idt_set_gate(v, (uint64_t)isr_stub_table[v], 0x8E, 0);
+        idt_set_gate((uint8_t)v, (uint64_t)isr_stub_table[v], 0x8E, 0);
     }
     /* A corrupt normal kernel stack must not prevent #DF diagnostics. */
     idt_set_gate(8, (uint64_t)isr_stub_table[8], 0x8E, 1);
 
-    // Special: syscall vector 0x80 (user callable, DPL=3)
-    // We will set it later when syscall is ready, or set a placeholder now.
-    // For now leave 0x80 as interrupt gate from stub (will be overridden).
+    // syscall_init later changes vector 0x80 to DPL=3.
 
     idt_load();
 
@@ -191,7 +199,7 @@ registers_t* isr_handler(registers_t* regs) {
         if (handlers[vec]) {
             handlers[vec](regs);
         }
-        pic_send_eoi(irq);
+        if(apic_is_active())apic_send_eoi();else pic_send_eoi(irq);
         if (irq == 0 && (((regs->cs & 3) == 3) ||
                          (current_task && current_task->state != TASK_RUNNING)))
             return task_schedule_from_interrupt(regs);

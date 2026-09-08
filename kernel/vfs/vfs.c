@@ -2,6 +2,7 @@
 #include "../memory/heap.h"
 #include "../console/console.h"
 #include "../initrd/initrd.h"
+#include "../timer.h"
 #include <stddef.h>
 
 #define OAR_MAGIC0 'O'
@@ -79,6 +80,9 @@ static vfs_ops_t initrd_ops = {
     .read = initrd_read,
     .write = 0,
     .create = 0,
+    .sync = 0,
+    .rename = 0,
+    .unlink = 0,
     .close = initrd_close
 };
 
@@ -102,6 +106,9 @@ static vfs_node_t* create_node(const char* name, vfs_node_type_t type, uint64_t 
     n->type = type;
     n->size = size;
     n->flags = 0;
+    n->created_ticks = timer_get_ticks();
+    n->modified_ticks = n->created_ticks;
+    n->open_refs = 0;
     n->ops = ops;
     n->fs_data = fs_data;
     n->parent = 0;
@@ -117,6 +124,30 @@ static void add_child(vfs_node_t* parent, vfs_node_t* child) {
     parent->children = child;
 }
 int vfs_attach_child(vfs_node_t* dir,vfs_node_t* child){if(!dir||dir->type!=VFS_DIR||!child)return-1;if(vfs_find_child(dir,child->name))return-1;add_child(dir,child);return 0;}
+
+/* OAR names are paths. Build their directory hierarchy instead of installing
+ * slash-containing names as unreachable children of the root. */
+static int install_initrd_path(const char* path,vfs_node_type_t type,uint64_t size,void* content){
+    if(!path||!path[0]||!vfs_root)return 0;
+    vfs_node_t* parent=vfs_root;uint32_t at=0;
+    while(path[at]=='/')at++;
+    while(path[at]){
+        char component[128];uint32_t n=0;
+        while(path[at]&&path[at]!='/'){if(n>=127)return 0;component[n++]=path[at++];}
+        component[n]=0;while(path[at]=='/')at++;
+        if(!n)continue;
+        int last=!path[at];vfs_node_t* existing=vfs_find_child(parent,component);
+        if(!last||type==VFS_DIR){
+            if(existing){if(existing->type!=VFS_DIR)return 0;parent=existing;continue;}
+            vfs_node_t* directory=create_node(component,VFS_DIR,0,0,&initrd_ops,0);
+            if(!directory)return 0;add_child(parent,directory);parent=directory;continue;
+        }
+        if(existing)return 0;
+        vfs_node_t* file=create_node(component,VFS_FILE,size,0,&initrd_ops,content);
+        if(!file)return 0;add_child(parent,file);return 1;
+    }
+    return type==VFS_DIR;
+}
 
 int vfs_mount_initrd_from(uint64_t raw_addr, uint64_t raw_size) {
     serial_write("VFS mount: raw_addr=");
@@ -190,8 +221,7 @@ int vfs_mount_initrd_from(uint64_t raw_addr, uint64_t raw_size) {
         uint8_t* content = ptr;
 
         vfs_node_type_t t = (entry->type == OAR_TYPE_DIR) ? VFS_DIR : VFS_FILE;
-        vfs_node_t* node = create_node(namebuf, t, entry->size, 0, &initrd_ops, content);
-        if (node) add_child(vfs_root, node);
+        if(!install_initrd_path(namebuf,t,entry->size,content)){serial_write("VFS: failed to install entry path\n");return 0;}
 
         ptr += entry->size;
         uint64_t used=(uint64_t)(ptr-(uint8_t*)raw_addr);if(used>UINT64_MAX-7||align8(used)>raw_size){serial_write("VFS: invalid entry alignment\n");return 0;}ptr=(uint8_t*)raw_addr+align8(used);
@@ -265,14 +295,32 @@ void vfs_close(vfs_node_t* node) {
 }
 
 static vfs_node_t* create_path_file(const char* path){char parent_path[128],name[128];uint32_t length=0;while(path[length]){if(length>=127)return 0;length++;}while(length&&path[length-1]=='/')length--;if(!length)return 0;uint32_t split=length;while(split&&path[split-1]!='/')split--;uint32_t nn=length-split;if(!nn||nn>=128)return 0;for(uint32_t i=0;i<nn;i++)name[i]=path[split+i];name[nn]=0;if(split==0){parent_path[0]='/';parent_path[1]=0;}else{uint32_t pn=split;while(pn>1&&path[pn-1]=='/')pn--;for(uint32_t i=0;i<pn;i++)parent_path[i]=path[i];parent_path[pn]=0;}vfs_node_t*parent=vfs_open(parent_path);if(!parent||parent->type!=VFS_DIR)return 0;return vfs_create(parent,name,VFS_FILE);}
-open_file_t* vfs_open_file(const char* path,uint32_t flags){vfs_node_t*n=vfs_open(path);if(!n&&(flags&VFS_OPEN_CREATE))n=create_path_file(path);if(!n||n->type!=VFS_FILE)return 0;if((flags&VFS_OPEN_TRUNC)&&n->ops&&n->ops->write)n->size=0;open_file_t*f=kmalloc(sizeof(*f));if(!f)return 0;*f=(open_file_t){n,0,flags,1};return f;}
+open_file_t* vfs_open_file(const char* path,uint32_t flags){vfs_node_t*n=vfs_open(path);if(!n&&(flags&VFS_OPEN_CREATE))n=create_path_file(path);if(!n||n->type!=VFS_FILE||((flags&VFS_OPEN_TRUNC)&&(!n->ops||!n->ops->write)))return 0;if(flags&VFS_OPEN_TRUNC){n->size=0;n->modified_ticks=timer_get_ticks();}open_file_t*f=kmalloc(sizeof(*f));if(!f)return 0;*f=(open_file_t){n,0,flags,1};n->open_refs++;return f;}
 void vfs_file_retain(open_file_t*f){if(f)f->refs++;}
-void vfs_file_release(open_file_t*f){if(f&&f->refs&&!--f->refs){vfs_close(f->node);kfree(f);}}
+void vfs_file_release(open_file_t*f){if(f&&f->refs&&!--f->refs){if(f->node&&f->node->open_refs)f->node->open_refs--;vfs_close(f->node);kfree(f);}}
 int64_t vfs_file_read(open_file_t*f,void*b,uint64_t n){if(!f)return-1;int64_t r=vfs_read(f->node,f->offset,b,n);if(r>0)f->offset+=(uint64_t)r;return r;}
-int64_t vfs_file_write(open_file_t*f,const void*b,uint64_t n){if(!f)return-1;int64_t r=vfs_write(f->node,f->offset,b,n);if(r>0)f->offset+=(uint64_t)r;return r;}
+int64_t vfs_file_write(open_file_t*f,const void*b,uint64_t n){if(!f)return-1;int64_t r=vfs_write(f->node,f->offset,b,n);if(r>0){f->offset+=(uint64_t)r;f->node->modified_ticks=timer_get_ticks();}return r;}
+int vfs_file_sync(open_file_t*f){return !f||!f->node||!f->node->ops||!f->node->ops->sync?-1:f->node->ops->sync(f->node);}
+
+static int split_parent(const char*path,vfs_node_t**parent,char*name){
+    char parent_path[128];uint32_t length=0;while(path&&path[length]){if(length>=127)return-1;length++;}
+    while(length&&path[length-1]=='/')length--;if(!length)return-1;uint32_t split=length;while(split&&path[split-1]!='/')split--;
+    uint32_t nn=length-split;if(!nn||nn>=128)return-1;for(uint32_t i=0;i<nn;i++)name[i]=path[split+i];name[nn]=0;
+    if(!split){parent_path[0]='/';parent_path[1]=0;}else{uint32_t pn=split;while(pn>1&&path[pn-1]=='/')pn--;for(uint32_t i=0;i<pn;i++)parent_path[i]=path[i];parent_path[pn]=0;}
+    *parent=vfs_open(parent_path);return *parent&&(*parent)->type==VFS_DIR?0:-1;
+}
+int vfs_rename(const char*old_path,const char*new_path,int replace){
+    vfs_node_t*node=vfs_open(old_path),*new_parent=0;char name[128];
+    if(!node||node==vfs_root||split_parent(new_path,&new_parent,name)<0||!node->ops||!node->ops->rename)return-1;
+    return node->ops->rename(node,new_parent,name,replace);
+}
+int vfs_mkdir(const char*path){vfs_node_t*parent=0;char name[128];if(!path||vfs_open(path)||split_parent(path,&parent,name)<0)return-1;if(name[0]=='.'&&(!name[1]||(name[1]=='.'&&!name[2])))return-1;return vfs_create(parent,name,VFS_DIR)?0:-1;}
+int vfs_unlink(const char*path,int directory){vfs_node_t*node=vfs_open(path);if(!node||node==vfs_root||!node->ops||!node->ops->unlink||node->open_refs)return-1;if(directory){if(node->type!=VFS_DIR||node->children)return-1;}else if(node->type!=VFS_FILE)return-1;return node->ops->unlink(node);}
+int vfs_stat(const char*path,vfs_stat_t*result){vfs_node_t*node=vfs_open(path);if(!node||!result)return-1;result->type=(uint32_t)node->type;result->flags=(uint32_t)node->flags;result->size=node->size;result->created_ticks=node->created_ticks;result->modified_ticks=node->modified_ticks;return 0;}
+int vfs_readdir(const char*path,uint32_t index,vfs_dirent_t*result){vfs_node_t*dir=vfs_open(path);if(!dir||dir->type!=VFS_DIR||!result)return-1;vfs_node_t*node=dir->children;while(node&&index){node=node->next_sibling;index--;}if(!node)return 0;result->type=(uint32_t)node->type;result->reserved=0;result->size=node->size;uint32_t i=0;for(;i<127&&node->name[i];i++)result->name[i]=node->name[i];result->name[i]=0;return 1;}
 
 void vfs_list_mounts(void) {
-    console_print("Mounts:\n  / (initrd/OAR read-only)\n  /tmp (ramfs writable if mounted)\n");
+    console_print("Mounts:\n  / (initrd/OAR read-only)\n  /tmp (ramfs writable if mounted)\n  /state (statefs persistent if disk present)\n");
 }
 
 // initrd read impl (from old data pointer)

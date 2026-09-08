@@ -15,6 +15,7 @@
 #define MIN_CLIENT_HEIGHT 80U
 #define OUTPUT_MAP 0x0000004000000000ULL
 #define ROOT_MAP 0x0000004100000000ULL
+#define OVERLAY_MAP 0x0000004180000000ULL
 #define CLIENT_MAP_BASE 0x0000004200000000ULL
 #define PENDING_MAP_BASE 0x0000004300000000ULL
 #define CLIENT_MAP_STRIDE 0x01000000ULL
@@ -58,8 +59,13 @@ static uint32_t damage_count,screen_width,screen_height,next_z=1,live_windows,ne
 static uint8_t full_damage;
 static uint64_t damage_events,full_damage_fallbacks,rejected_requests,resize_commits,resize_aborts,input_events;
 static int64_t output_surface=-1,output_capability=-1,root_surface=-1,root_session=-1;
+static int64_t overlay_surface=-1;
 static uint64_t root_owner_pid,root_mapping_address,root_session_missing_since;
 static const uint32_t*root_pixels;
+static const uint32_t*overlay_pixels;
+static uint32_t overlay_width,overlay_height;
+static int32_t overlay_x,overlay_y;
+static uint8_t overlay_visible;
 static uint32_t root_id;
 static uint32_t*output_pixels;
 static int32_t work_x,work_y;
@@ -139,16 +145,16 @@ static void repaint(void){
         if(available>0)obs_draw_text_clipped(&output_canvas,title_x,title_y,(uint32_t)available,w->title,w->focused?theme->colors.title_text_active:theme->colors.title_text_inactive,theme->metrics.text_scale);
         draw_controls(w);blit(w->x+border(),w->y+title_height(),w->width,w->height,w->pixels);
     }
-    draw_resize_outline();draw_cursor();os_surface_present((uint64_t)output_capability,(uint64_t)output_surface,0,0);damage_count=0;full_damage=0;
+    draw_resize_outline();if(overlay_visible&&overlay_pixels)blit(overlay_x,overlay_y,overlay_width,overlay_height,overlay_pixels);draw_cursor();os_surface_present((uint64_t)output_capability,(uint64_t)output_surface,0,0);damage_count=0;full_damage=0;
 }
 
 static void send_event(int index,uint32_t type,uint32_t code,int32_t value,int32_t x,int32_t y,uint64_t ticks){
     obs_window_event_t event={0};event.type=type;event.code=code;event.value=value;event.x=x;event.y=y;event.ticks=ticks;
     if(index>=0&&index<MAX_WINDOWS&&windows[index].used)os_ipc_try_send((uint64_t)windows[index].session,&event,sizeof(event));else if(index==-2&&root_session>=0)os_ipc_try_send((uint64_t)root_session,&event,sizeof(event));
 }
-static void notify_root(uint32_t type,uint32_t id,uint32_t state){
-    obs_desktop_management_event_t event={0};event.type=type;event.window_id=id;event.state=state;event.ticks=sys_getticks();
-    for(int i=0;i<MAX_WINDOWS;i++)if(windows[i].used&&windows[i].id==id){for(uint32_t n=0;n<sizeof(event.title)-1&&windows[i].title[n];n++)event.title[n]=windows[i].title[n];break;}
+static void notify_root(uint32_t type,uint32_t id,uint32_t state,uint64_t owner_pid){
+    obs_desktop_management_event_t event={0};event.type=type;event.window_id=id;event.state=state;event.ticks=sys_getticks();event.owner_pid=owner_pid;
+    for(int i=0;i<MAX_WINDOWS;i++)if(windows[i].used&&windows[i].id==id){event.owner_pid=windows[i].owner_pid;for(uint32_t n=0;n<sizeof(event.title)-1&&windows[i].title[n];n++)event.title[n]=windows[i].title[n];break;}
     if(root_session>=0)os_ipc_try_send((uint64_t)root_session,&event,sizeof(event));
 }
 static int top_live_window(void){int best=-1;uint32_t best_z=0;for(int i=0;i<MAX_WINDOWS;i++)if(visible(&windows[i])&&windows[i].z>=best_z&&os_process_alive(windows[i].owner_pid)>0){best=i;best_z=windows[i].z;}return best;}
@@ -157,7 +163,7 @@ static void set_focus(int index,uint64_t ticks){
     if(index==focused)return;
     if(focused>=0&&windows[focused].used){mark_window_damage(&windows[focused]);windows[focused].focused=0;send_event(focused,OBS_WINDOW_EVENT_FOCUS,0,0,0,0,ticks);}
     focused=index;if(index>=0&&windows[index].used){windows[index].focused=1;windows[index].z=next_z++;mark_window_damage(&windows[index]);send_event(index,OBS_WINDOW_EVENT_FOCUS,0,1,0,0,ticks);write("displayd: window focused and raised\n");}
-    notify_root(OBS_DESKTOP_EVENT_WINDOW_FOCUSED,index>=0?windows[index].id:0,index>=0?windows[index].state:0);
+    notify_root(OBS_DESKTOP_EVENT_WINDOW_FOCUSED,index>=0?windows[index].id:0,index>=0?windows[index].state:0,index>=0?windows[index].owner_pid:0);
 }
 static int id_index(uint32_t id){uint32_t encoded=id&31U;if(!encoded||encoded>MAX_WINDOWS)return-1;int index=(int)encoded-1;return windows[index].used&&windows[index].id==id?index:-1;}
 static int find_window(uint32_t id,uint64_t owner){int index=id_index(id);return index>=0&&windows[index].owner_pid==owner?index:-1;}
@@ -193,26 +199,27 @@ static void commit_resize(window_slot_t*w){
     if(w->pending_save_restore){w->restore_x=w->x;w->restore_y=w->y;w->restore_width=w->width;w->restore_height=w->height;}
     w->surface=w->pending_surface;w->mapping_address=w->pending_mapping;w->pixels=w->pending_pixels;w->width=w->pending_width;w->height=w->pending_height;w->x=w->pending_x;w->y=w->pending_y;w->state=w->pending_state;
     w->pending=0;w->pending_surface=-1;w->pending_pixels=0;w->pending_since=0;if(w->state==OBS_WINDOW_NORMAL){w->restore_x=w->x;w->restore_y=w->y;w->restore_width=w->width;w->restore_height=w->height;}
-    os_shm_unmap((void*)old_mapping);os_handle_close((uint64_t)old_surface);resize_commits++;mark_window_damage(w);notify_root(OBS_DESKTOP_EVENT_WINDOW_STATE,w->id,w->state);write("displayd: replacement surface committed\n");
+    os_shm_unmap((void*)old_mapping);os_handle_close((uint64_t)old_surface);resize_commits++;mark_window_damage(w);notify_root(OBS_DESKTOP_EVENT_WINDOW_STATE,w->id,w->state,w->owner_pid);write("displayd: replacement surface committed\n");
 }
-static void minimize_window(int index){window_slot_t*w=&windows[index];if(!visible(w)||w->pending)return;mark_window_damage(w);w->pre_minimize_state=w->state;w->state=OBS_WINDOW_MINIMIZED;if(dragged==index)dragged=-1;if(resizing==index)resizing=-1;if(hovered==index){hovered=-1;hovered_control=0;}if(pressed==index){pressed=-1;pressed_control=0;}notify_root(OBS_DESKTOP_EVENT_WINDOW_STATE,w->id,w->state);if(focused==index){focused=-1;w->focused=0;send_event(index,OBS_WINDOW_EVENT_FOCUS,0,0,0,0,sys_getticks());set_focus(top_live_window(),sys_getticks());}write("displayd: window minimized\n");}
-static void restore_minimized(int index){window_slot_t*w=&windows[index];if(w->state!=OBS_WINDOW_MINIMIZED)return;w->state=w->pre_minimize_state==OBS_WINDOW_MAXIMIZED?OBS_WINDOW_MAXIMIZED:OBS_WINDOW_NORMAL;mark_window_damage(w);notify_root(OBS_DESKTOP_EVENT_WINDOW_STATE,w->id,w->state);set_focus(index,sys_getticks());write("displayd: minimized window restored\n");}
+static void minimize_window(int index){window_slot_t*w=&windows[index];if(!visible(w)||w->pending)return;mark_window_damage(w);w->pre_minimize_state=w->state;w->state=OBS_WINDOW_MINIMIZED;if(dragged==index)dragged=-1;if(resizing==index)resizing=-1;if(hovered==index){hovered=-1;hovered_control=0;}if(pressed==index){pressed=-1;pressed_control=0;}notify_root(OBS_DESKTOP_EVENT_WINDOW_STATE,w->id,w->state,w->owner_pid);if(focused==index){focused=-1;w->focused=0;send_event(index,OBS_WINDOW_EVENT_FOCUS,0,0,0,0,sys_getticks());set_focus(top_live_window(),sys_getticks());}write("displayd: window minimized\n");}
+static void restore_minimized(int index){window_slot_t*w=&windows[index];if(w->state!=OBS_WINDOW_MINIMIZED)return;w->state=w->pre_minimize_state==OBS_WINDOW_MAXIMIZED?OBS_WINDOW_MAXIMIZED:OBS_WINDOW_NORMAL;mark_window_damage(w);notify_root(OBS_DESKTOP_EVENT_WINDOW_STATE,w->id,w->state,w->owner_pid);set_focus(index,sys_getticks());write("displayd: minimized window restored\n");}
 static void maximize_window(int index){window_slot_t*w=&windows[index];if(w->state==OBS_WINDOW_MINIMIZED){restore_minimized(index);if(w->state==OBS_WINDOW_MAXIMIZED)return;}if(w->state!=OBS_WINDOW_NORMAL||w->pending)return;uint32_t decoration_width=(uint32_t)(border()*2),decoration_height=(uint32_t)(title_height()+border());uint32_t width=work_width>decoration_width?work_width-decoration_width:0,height=work_height>decoration_height?work_height-decoration_height:0;if(begin_resize(index,work_x,work_y,width,height,OBS_WINDOW_MAXIMIZED,1)==0)set_focus(index,sys_getticks());}
 static void restore_maximized(int index){window_slot_t*w=&windows[index];if(w->state==OBS_WINDOW_MINIMIZED){restore_minimized(index);return;}if(w->state!=OBS_WINDOW_MAXIMIZED||w->pending)return;if(begin_resize(index,w->restore_x,w->restore_y,w->restore_width,w->restore_height,OBS_WINDOW_NORMAL,0)==0)set_focus(index,sys_getticks());}
 static void perform_action(int index,uint32_t action){if(action==OBS_DISPLAY_ACTION_MINIMIZE)minimize_window(index);else if(action==OBS_DISPLAY_ACTION_MAXIMIZE)maximize_window(index);else if(action==OBS_DISPLAY_ACTION_RESTORE){if(windows[index].state==OBS_WINDOW_MINIMIZED)restore_minimized(index);else restore_maximized(index);}else rejected_requests++;}
 
 static void destroy_window(int index,const char*reason){
     if(index<0||index>=MAX_WINDOWS||!windows[index].used)return;
-    window_slot_t*w=&windows[index];uint32_t removed_id=w->id;mark_window_damage(w);int was_focused=focused==index;
+    window_slot_t*w=&windows[index];uint32_t removed_id=w->id;uint64_t removed_owner=w->owner_pid;mark_window_damage(w);int was_focused=focused==index;
     if(dragged==index)dragged=-1;
     if(resizing==index)resizing=-1;
     if(hovered==index){hovered=-1;hovered_control=0;}
     if(pressed==index){pressed=-1;pressed_control=0;}
     if(w->pending)discard_pending(w);
-    os_shm_unmap((void*)w->mapping_address);os_handle_close((uint64_t)w->surface);os_handle_close((uint64_t)w->session);for(uint32_t i=0;i<sizeof(*w);i++)((uint8_t*)w)[i]=0;if(live_windows)live_windows--;notify_root(OBS_DESKTOP_EVENT_WINDOW_REMOVED,removed_id,0);
+    os_shm_unmap((void*)w->mapping_address);os_handle_close((uint64_t)w->surface);os_handle_close((uint64_t)w->session);for(uint32_t i=0;i<sizeof(*w);i++)((uint8_t*)w)[i]=0;if(live_windows)live_windows--;notify_root(OBS_DESKTOP_EVENT_WINDOW_REMOVED,removed_id,0,removed_owner);
     if(was_focused){focused=-1;set_focus(top_live_window(),sys_getticks());}write(reason);
 }
-static void destroy_root(void){if(root_surface<0)return;os_shm_unmap((void*)root_mapping_address);os_handle_close((uint64_t)root_surface);os_handle_close((uint64_t)root_session);root_surface=root_session=-1;root_pixels=0;root_owner_pid=0;root_id=0;root_mapping_address=0;root_session_missing_since=0;work_x=work_y=0;work_width=screen_width;work_height=screen_height;mark_full_damage();}
+static void destroy_overlay(void){if(overlay_surface<0)return;os_shm_unmap((void*)OVERLAY_MAP);os_handle_close((uint64_t)overlay_surface);overlay_surface=-1;overlay_pixels=0;overlay_width=overlay_height=0;overlay_x=overlay_y=0;overlay_visible=0;}
+static void destroy_root(void){if(root_surface<0)return;destroy_overlay();os_shm_unmap((void*)root_mapping_address);os_handle_close((uint64_t)root_surface);os_handle_close((uint64_t)root_session);root_surface=root_session=-1;root_pixels=0;root_owner_pid=0;root_id=0;root_mapping_address=0;root_session_missing_since=0;work_x=work_y=0;work_width=screen_width;work_height=screen_height;mark_full_damage();}
 static void sweep_dead_clients(void){
     uint64_t now=sys_getticks();for(int i=0;i<MAX_WINDOWS;i++)if(windows[i].used){window_slot_t*w=&windows[i];if(os_process_alive(w->owner_pid)<=0){destroy_window(i,"displayd: orphan window reclaimed\n");continue;}if(w->pending&&now-w->pending_since>=100)discard_pending(w);if(os_handle_has_remote((uint64_t)w->session)>0){w->session_missing_since=0;continue;}if(!w->session_missing_since)w->session_missing_since=now?now:1;else if(now-w->session_missing_since>=2)destroy_window(i,"displayd: orphan window reclaimed\n");}
     if(root_surface>=0){if(os_process_alive(root_owner_pid)<=0)destroy_root();else if(os_handle_has_remote((uint64_t)root_session)>0)root_session_missing_since=0;else if(!root_session_missing_since)root_session_missing_since=now?now:1;else if(now-root_session_missing_since>=2)destroy_root();}
@@ -243,11 +250,13 @@ static void handle_input(const obs_input_event_t*e){
         int32_t dy=e->type==OBS_INPUT_MOUSE_MOVE?signed_reserved(e->reserved):(e->code==OBS_INPUT_AXIS_Y?e->value:0);
         mark_damage(cursor_x,cursor_y,9,18);int64_t next_x=(int64_t)cursor_x+dx,next_y=(int64_t)cursor_y+dy;
         cursor_x=next_x<0?0:(next_x>=(int64_t)screen_width?(int32_t)screen_width-1:(int32_t)next_x);cursor_y=next_y<0?0:(next_y>=(int64_t)screen_height?(int32_t)screen_height-1:(int32_t)next_y);
+        if(overlay_visible){send_event(-2,OBS_WINDOW_EVENT_MOUSE_MOVE,0,0,cursor_x,cursor_y,e->ticks);mark_damage(cursor_x,cursor_y,9,18);return;}
         if(resizing>=0&&left_down&&windows[resizing].used){mark_geometry_damage(resize_candidate_x,resize_candidate_y,resize_candidate_width,resize_candidate_height);update_resize_candidate();mark_geometry_damage(resize_candidate_x,resize_candidate_y,resize_candidate_width,resize_candidate_height);}
         else if(dragged>=0&&left_down&&windows[dragged].used){mark_window_damage(&windows[dragged]);windows[dragged].x=cursor_x-drag_dx;windows[dragged].y=cursor_y-drag_dy;clamp_window(&windows[dragged]);windows[dragged].restore_x=windows[dragged].x;windows[dragged].restore_y=windows[dragged].y;mark_window_damage(&windows[dragged]);}
         update_hover();send_event(-2,OBS_WINDOW_EVENT_MOUSE_MOVE,0,0,cursor_x,cursor_y,e->ticks);mark_damage(cursor_x,cursor_y,9,18);return;
     }
-    if(e->type==OBS_INPUT_KEY){if(focused>=0&&visible(&windows[focused]))send_event(focused,OBS_WINDOW_EVENT_KEY,e->code,e->value,0,0,e->ticks);return;}
+    if(e->type==OBS_INPUT_KEY){if(overlay_visible)send_event(-2,OBS_WINDOW_EVENT_KEY,e->code,e->value,0,0,e->ticks);else if(focused>=0&&visible(&windows[focused]))send_event(focused,OBS_WINDOW_EVENT_KEY,e->code,e->value,0,0,e->ticks);return;}
+    if(overlay_visible){send_event(-2,OBS_WINDOW_EVENT_MOUSE_BUTTON,e->code,e->value,cursor_x,cursor_y,e->ticks);return;}
     int target=hit_test(cursor_x,cursor_y);
     if(e->code==OBS_INPUT_BUTTON_LEFT){left_down=e->value?1:0;if(e->value){
             if(target>=0){set_focus(target,e->ticks);window_slot_t*w=&windows[target];uint32_t control=hit_control(w,cursor_x,cursor_y);uint8_t direction=hit_resize(w,cursor_x,cursor_y);
@@ -268,6 +277,15 @@ static void handle_input(const obs_input_event_t*e){
 }
 
 static void reject_create(int64_t session){obs_display_create_response_t response={-1,0,0,0};if(session>=0){os_ipc_try_send((uint64_t)session,&response,sizeof(response));os_handle_close((uint64_t)session);}rejected_requests++;}
+static void create_overlay(const obs_display_overlay_create_request_t*r,int64_t reply,uint64_t sender){
+    if(reply<0||sender!=root_owner_pid||r->root_id!=root_id||overlay_surface>=0||!r->width||!r->height||r->width>screen_width||r->height>screen_height){reject_create(reply);return;}
+    int64_t surface=os_surface_create(r->width,r->height);if(surface<0){reject_create(reply);return;}
+    const uint32_t*pixels=os_shm_map((uint64_t)surface,(void*)OVERLAY_MAP,0);if(pixels==(void*)-1){os_handle_close((uint64_t)surface);reject_create(reply);return;}
+    overlay_surface=surface;overlay_pixels=pixels;overlay_width=r->width;overlay_height=r->height;overlay_visible=0;
+    obs_display_create_response_t response={0,0,r->width,r->height};
+    if(os_ipc_try_send_handle((uint64_t)reply,&response,sizeof(response),(uint64_t)surface,OS_RIGHT_READ|OS_RIGHT_WRITE|OS_RIGHT_MAP)!=(int64_t)sizeof(response))destroy_overlay();
+    os_handle_close((uint64_t)reply);
+}
 static uint32_t allocate_window_id(int index){uint32_t generation=(slot_generations[index]+1U)&0x07ffffffU;if(!generation)generation=1;slot_generations[index]=generation;return(generation<<5)|(uint32_t)(index+1);}
 static void create_client(const obs_display_create_request_t*request,int64_t session,uint64_t owner_pid){
     int root=request->operation==OBS_DISPLAY_CREATE_ROOT,index=-1;if(session<0||!owner_pid||request->flags||!request->width||!request->height||(root?(root_surface>=0||request->width!=screen_width||request->height!=screen_height):(!valid_size(request->width,request->height)||request->width>1024||request->height>768))){reject_create(session);return;}
@@ -276,8 +294,8 @@ static void create_client(const obs_display_create_request_t*request,int64_t ses
     if(root){root_surface=surface;root_session=session;root_pixels=pixels;root_id=id;root_owner_pid=owner_pid;root_mapping_address=address;}
     else{window_slot_t*w=&windows[index];*w=(window_slot_t){.used=1,.id=id,.width=request->width,.height=request->height,.z=next_z++,.generation=slot_generations[index],.state=OBS_WINDOW_NORMAL,.pre_minimize_state=OBS_WINDOW_NORMAL,.x=180+index*24,.y=100+index*20,.restore_x=180+index*24,.restore_y=100+index*20,.restore_width=request->width,.restore_height=request->height,.surface=surface,.session=session,.owner_pid=owner_pid,.mapping_address=address,.pixels=pixels,.pending_surface=-1};for(uint32_t i=0;i<sizeof(w->title)-1&&request->title[i];i++){unsigned char ch=(unsigned char)request->title[i];w->title[i]=ch>=32&&ch<=126?(char)ch:'?';}if(!w->title[0]){w->title[0]='A';w->title[1]='p';w->title[2]='p';}live_windows++;}
     obs_display_create_response_t response={0,id,request->width,request->height};if(os_ipc_send_handle((uint64_t)session,&response,sizeof(response),(uint64_t)surface,OS_RIGHT_READ|OS_RIGHT_WRITE|OS_RIGHT_MAP)!=(int64_t)sizeof(response)){if(root)destroy_root();else destroy_window(index,"displayd: failed client creation reclaimed\n");return;}
-    if(root){mark_full_damage();for(int i=0;i<MAX_WINDOWS;i++)if(windows[i].used){notify_root(OBS_DESKTOP_EVENT_WINDOW_ADDED,windows[i].id,windows[i].state);if(windows[i].focused)notify_root(OBS_DESKTOP_EVENT_WINDOW_FOCUSED,windows[i].id,windows[i].state);}write("displayd: desktop root surface created\n");}
-    else{notify_root(OBS_DESKTOP_EVENT_WINDOW_ADDED,id,OBS_WINDOW_NORMAL);set_focus(index,sys_getticks());mark_window_damage(&windows[index]);write("displayd: application window created\n");}
+    if(root){mark_full_damage();for(int i=0;i<MAX_WINDOWS;i++)if(windows[i].used){notify_root(OBS_DESKTOP_EVENT_WINDOW_ADDED,windows[i].id,windows[i].state,windows[i].owner_pid);if(windows[i].focused)notify_root(OBS_DESKTOP_EVENT_WINDOW_FOCUSED,windows[i].id,windows[i].state,windows[i].owner_pid);}write("displayd: desktop root surface created\n");}
+    else{notify_root(OBS_DESKTOP_EVENT_WINDOW_ADDED,id,OBS_WINDOW_NORMAL,owner_pid);set_focus(index,sys_getticks());mark_window_damage(&windows[index]);write("displayd: application window created\n");}
 }
 static void query_stats(int64_t reply){obs_display_stats_response_t response={0,live_windows,damage_events,full_damage_fallbacks,rejected_requests,resize_commits,resize_aborts,cursor_x,cursor_y,input_events};if(reply>=0){os_ipc_try_send((uint64_t)reply,&response,sizeof(response));os_handle_close((uint64_t)reply);}}
 static void reply_close(int64_t reply,int32_t status){if(reply>=0){obs_display_close_response_t response={status};os_ipc_try_send((uint64_t)reply,&response,sizeof(response));os_handle_close((uint64_t)reply);}}
@@ -285,6 +303,7 @@ static void reply_close(int64_t reply,int32_t status){if(reply>=0){obs_display_c
 static void dispatch(const uint8_t*message,int64_t received,const os_ipc_message_info_t*info){
     if(received<4){if(info->attached>=0)os_handle_close((uint64_t)info->attached);rejected_requests++;return;}uint32_t operation=*(const uint32_t*)message;
     if(operation==OBS_DISPLAY_CREATE_WINDOW||operation==OBS_DISPLAY_CREATE_ROOT){if(received==(int64_t)sizeof(obs_display_create_request_t)&&info->attached>=0)create_client((const obs_display_create_request_t*)message,info->attached,info->sender_pid);else reject_create(info->attached);return;}
+    if(operation==OBS_DISPLAY_CREATE_SHELL_OVERLAY){if(received==(int64_t)sizeof(obs_display_overlay_create_request_t)&&info->attached>=0)create_overlay((const obs_display_overlay_create_request_t*)message,info->attached,info->sender_pid);else reject_create(info->attached);return;}
     if(operation==OBS_DISPLAY_QUERY_STATS){if(received==(int64_t)sizeof(obs_display_query_request_t)&&info->attached>=0)query_stats(info->attached);else{if(info->attached>=0)os_handle_close((uint64_t)info->attached);rejected_requests++;}return;}
     if(info->attached>=0&&operation!=OBS_DISPLAY_CLOSE_WINDOW){reject_create(info->attached);return;}
     if(operation==OBS_DISPLAY_PRESENT_WINDOW&&received==(int64_t)sizeof(obs_display_window_request_t)){uint32_t id=((const obs_display_window_request_t*)message)->window_id;if(id==root_id&&info->sender_pid==root_owner_pid)mark_full_damage();else{int index=find_window(id,info->sender_pid);if(index<0){rejected_requests++;return;}window_slot_t*w=&windows[index];if(visible(w))mark_damage(w->x+border(),w->y+title_height(),(int32_t)w->width,(int32_t)w->height);}return;}
@@ -294,6 +313,7 @@ static void dispatch(const uint8_t*message,int64_t received,const os_ipc_message
     if(operation==OBS_DISPLAY_WINDOW_ACTION&&received==(int64_t)sizeof(obs_display_action_request_t)){const obs_display_action_request_t*r=(const obs_display_action_request_t*)message;int index=find_window(r->window_id,info->sender_pid);if(index<0||r->reserved){rejected_requests++;return;}perform_action(index,r->action);return;}
     if(operation==OBS_DISPLAY_CONFIGURE_ROOT&&received==(int64_t)sizeof(obs_display_root_config_request_t)){const obs_display_root_config_request_t*r=(const obs_display_root_config_request_t*)message;uint64_t right=(uint64_t)(r->x<0?0:r->x)+r->width,bottom=(uint64_t)(r->y<0?0:r->y)+r->height;if(r->root_id!=root_id||info->sender_pid!=root_owner_pid||r->x<0||r->y<0||!r->width||!r->height||right>screen_width||bottom>screen_height){rejected_requests++;return;}work_x=r->x;work_y=r->y;work_width=r->width;work_height=r->height;for(int i=0;i<MAX_WINDOWS;i++)if(windows[i].used&&windows[i].state==OBS_WINDOW_MAXIMIZED&&!windows[i].pending){uint32_t dw=(uint32_t)(border()*2),dh=(uint32_t)(title_height()+border());begin_resize(i,work_x,work_y,work_width>dw?work_width-dw:0,work_height>dh?work_height-dh:0,OBS_WINDOW_MAXIMIZED,0);}mark_full_damage();return;}
     if(operation==OBS_DISPLAY_MANAGE_WINDOW&&received==(int64_t)sizeof(obs_display_manage_request_t)){const obs_display_manage_request_t*r=(const obs_display_manage_request_t*)message;int index=id_index(r->window_id);if(r->root_id!=root_id||info->sender_pid!=root_owner_pid||r->action!=OBS_DISPLAY_MANAGE_FOCUS_RESTORE||index<0){rejected_requests++;return;}if(windows[index].state==OBS_WINDOW_MINIMIZED)restore_minimized(index);else set_focus(index,sys_getticks());return;}
+    if(operation==OBS_DISPLAY_CONFIGURE_SHELL_OVERLAY&&received==(int64_t)sizeof(obs_display_overlay_config_request_t)){const obs_display_overlay_config_request_t*r=(const obs_display_overlay_config_request_t*)message;uint64_t right=(uint64_t)(r->x<0?0:r->x)+overlay_width,bottom=(uint64_t)(r->y<0?0:r->y)+overlay_height;if(info->sender_pid!=root_owner_pid||r->root_id!=root_id||overlay_surface<0||r->visible>1||r->x<0||r->y<0||right>screen_width||bottom>screen_height){rejected_requests++;return;}overlay_x=r->x;overlay_y=r->y;overlay_visible=(uint8_t)r->visible;mark_full_damage();return;}
     if(operation==OBS_DISPLAY_FORWARD_INPUT&&received==(int64_t)sizeof(obs_display_input_request_t)){handle_input(&((const obs_display_input_request_t*)message)->event);return;}rejected_requests++;
 }
 

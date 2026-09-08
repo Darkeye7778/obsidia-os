@@ -39,10 +39,19 @@
 #define SYS_HANDLE_HAS_REMOTE    34
 #define SYS_IPC_TRY_SEND_HANDLE  35
 #define SYS_INPUT_TRY_READ       36
+#define SYS_PROCESS_INFO         37
+#define SYS_FD_SYNC              38
+#define SYS_RENAME               39
+#define SYS_MKDIR                40
+#define SYS_UNLINK               41
+#define SYS_STAT                 42
+#define SYS_READDIR              43
+#define SYS_SYSTEM_CONTROL       44
 
 #define OS_OBJECT_IPC 1
 #define OS_OBJECT_INPUT 4
 #define OS_OBJECT_DISPLAY_OUTPUT 5
+#define OS_OBJECT_SYSTEM_CONTROL 6
 typedef struct { uint32_t type, code; int32_t value; uint32_t reserved; uint64_t ticks; } os_input_event_t;
 typedef struct { int64_t attached; uint64_t sender_pid; } os_ipc_message_info_t;
 
@@ -118,6 +127,12 @@ static inline int64_t sys_open(const char* path) { return sys_open_flags(path,0)
 static inline int64_t sys_close(int fd) {
     return (int64_t)syscall(SYS_CLOSE,(uint64_t)fd,0,0);
 }
+static inline int64_t sys_fd_sync(int fd){return(int64_t)syscall(SYS_FD_SYNC,(uint64_t)fd,0,0);}
+static inline int64_t sys_rename(const char*old_path,const char*new_path,int replace){return(int64_t)syscall(SYS_RENAME,(uint64_t)old_path,(uint64_t)new_path,(uint64_t)replace);}
+static inline int64_t sys_mkdir(const char*path){return(int64_t)syscall(SYS_MKDIR,(uint64_t)path,0,0);}
+static inline int64_t sys_unlink(const char*path,int directory){return(int64_t)syscall(SYS_UNLINK,(uint64_t)path,(uint64_t)directory,0);}
+static inline int64_t sys_stat(const char*path,void*result){return(int64_t)syscall(SYS_STAT,(uint64_t)path,(uint64_t)result,0);}
+static inline int64_t sys_readdir(const char*path,uint32_t index,void*result){return(int64_t)syscall(SYS_READDIR,(uint64_t)path,index,(uint64_t)result);}
 static inline void sys_sleep(uint64_t ticks) {
     syscall(SYS_SLEEP,ticks,0,0);
 }
@@ -153,6 +168,7 @@ static inline int64_t os_ipc_recv_handle(uint64_t ep,void*b,uint64_t n,int64_t*a
 static inline int64_t os_ipc_recv_ex(uint64_t ep,void*b,uint64_t n,os_ipc_message_info_t*info,int nonblocking){return(int64_t)syscall5(SYS_IPC_RECV_EX,ep,(uint64_t)b,n,(uint64_t)info,(uint64_t)nonblocking);}
 static inline int64_t os_process_alive(uint64_t pid){return(int64_t)syscall(SYS_PROCESS_ALIVE,pid,0,0);}
 static inline int64_t os_handle_has_remote(uint64_t handle){return(int64_t)syscall(SYS_HANDLE_HAS_REMOTE,handle,0,0);}
+static inline int64_t os_system_control_raw(uint64_t handle,uint32_t action){return(int64_t)syscall(SYS_SYSTEM_CONTROL,handle,action,0);}
 #define OS_RIGHT_READ    1U
 #define OS_RIGHT_WRITE   2U
 #define OS_RIGHT_MAP     4U

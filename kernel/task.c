@@ -369,6 +369,17 @@ int task_process_alive(uint64_t pid) {
     return 0;
 }
 
+int task_process_info(uint64_t pid,task_process_info_t* info) {
+    if(!pid||!info||!task_process_alive(pid))return -1;
+    for(int i=0;i<MAX_PROCESSES;i++)if(processes[i].pid==pid){
+        info->pid=processes[i].pid;info->parent_pid=processes[i].parent_pid;
+        for(int n=0;n<TASK_NAME_LEN;n++)info->image[n]=processes[i].name[n];
+        info->image[TASK_NAME_LEN-1]=0;
+        return 0;
+    }
+    return -1;
+}
+
 int task_handle_has_remote(process_t* owner,uint64_t handle) {
     kobject_t* object=handle_get(owner,handle,0,0);if(!object)return-1;
     for(int p=0;p<MAX_PROCESSES;p++)if(processes[p].pid && &processes[p]!=owner && task_process_alive(processes[p].pid))
@@ -434,7 +445,7 @@ int64_t process_spawn(const char* filename, uint64_t parent_pid) {
     if(!proc) { paging_destroy_user_address_space(process_cr3); return -1; }
     proc->cr3=process_cr3; proc->parent_pid=parent_pid;
     for(int pi=0;pi<MAX_PROCESSES;pi++)if(processes[pi].pid==parent_pid){handles_inherit(proc,&processes[pi]);break;}
-    if(kernel_process && parent_pid==kernel_process->pid){resource_grant_input(proc);resource_grant_display_output(proc);}
+    if(kernel_process && parent_pid==kernel_process->pid){resource_grant_input(proc);resource_grant_display_output(proc);resource_grant_system_control(proc);}
     int ni=0; while(filename[ni]&&ni<TASK_NAME_LEN-1){proc->name[ni]=filename[ni];ni++;}
     task_t* ut = task_create_user_thread_for(proc, entry, ustack_top, filename);
     if (!ut) {

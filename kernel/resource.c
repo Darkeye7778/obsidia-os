@@ -6,9 +6,13 @@
 #include "drivers/framebuffer.h"
 #include "timer.h"
 #include "console/console.h"
+#include "block.h"
+#include "acpi.h"
+#include "idt.h"
 
 #define IPC_MESSAGES 8
 #define IPC_MESSAGE_BYTES 64
+extern void serial_write(const char*);
 
 typedef struct {
     kobject_t base;
@@ -24,6 +28,7 @@ typedef struct { kobject_t base; uint64_t pages; uint64_t* frames; uint32_t widt
 typedef struct { kobject_t base; input_event_t events[INPUT_EVENTS]; uint16_t head,tail,count; uint64_t dropped_motion,coalesced_motion; } input_t;
 static input_t system_input = { .base = { KOBJ_INPUT, 1, 0 } };
 static kobject_t system_display_output = { KOBJ_DISPLAY_OUTPUT, 1, 0 };
+static kobject_t system_control = { KOBJ_SYSTEM_CONTROL, 1, 0 };
 static ipc_t* system_service_port;
 
 static void ipc_destroy(kobject_t* object) {
@@ -160,6 +165,14 @@ int resource_grant_input(process_t* process) {
 }
 int resource_grant_display_output(process_t* process) {
     return handle_install(process,&system_display_output,RIGHT_PRESENT|RIGHT_DUP,0)<0?-1:0;
+}
+int resource_grant_system_control(process_t*process){return handle_install(process,&system_control,RIGHT_WRITE|RIGHT_DUP,0)<0?-1:0;}
+int resource_system_control(process_t*process,uint64_t handle,uint32_t action){
+    if(!handle_get(process,handle,KOBJ_SYSTEM_CONTROL,RIGHT_WRITE)||(action!=1&&action!=2))return-1;
+    serial_write(action==1?"POWER: synchronized shutdown requested\n":"POWER: synchronized reboot requested\n");
+    if(block_flush_all())serial_write("POWER: block flush reported an error\n");
+    disable_interrupts();int result=action==1?acpi_power_off():acpi_reboot();
+    if(result==0)for(;;)__asm__ volatile("hlt");enable_interrupts();return result;
 }
 static int32_t motion_sum(int32_t a,int32_t b){int64_t sum=(int64_t)a+b;if(sum>32767)return 32767;if(sum<-32768)return-32768;return(int32_t)sum;}
 static int input_motion(const input_event_t*event){return event->type==INPUT_EVENT_MOUSE_MOVE||event->type==INPUT_EVENT_RELATIVE;}

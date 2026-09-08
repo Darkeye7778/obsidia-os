@@ -7,6 +7,7 @@
 #define WINDOW_MAP_BASE 0x0000005000000000ULL
 #define WINDOW_MAP_STRIDE 0x01000000ULL
 #define WINDOW_MAP_ALTERNATE 0x00800000ULL
+#define SHELL_OVERLAY_MAP 0x0000005180000000ULL
 static uint32_t next_mapping_slot;
 
 static int create_window(obs_window_t*window,uint32_t width,uint32_t height,const char*title,uint32_t operation){
@@ -82,6 +83,33 @@ int obs_desktop_focus_restore(obs_window_t*w,uint32_t id){
     if(!w||w->display_handle==(uint64_t)-1)return-1;
     obs_display_manage_request_t request={OBS_DISPLAY_MANAGE_WINDOW,w->id,id,OBS_DISPLAY_MANAGE_FOCUS_RESTORE};
     return os_ipc_send(w->display_handle,&request,sizeof(request))==(int64_t)sizeof(request)?0:-1;
+}
+int obs_desktop_overlay_create(obs_window_t*root,obs_shell_overlay_t*overlay,uint32_t width,uint32_t height){
+    if(!root||!overlay||root->display_handle==(uint64_t)-1||!width||!height)return-1;
+    for(uint32_t i=0;i<sizeof(*overlay);i++)((uint8_t*)overlay)[i]=0;
+    overlay->surface_handle=(uint64_t)-1;
+    int64_t reply=os_ipc_create();if(reply<0)return-1;
+    obs_display_overlay_create_request_t request={OBS_DISPLAY_CREATE_SHELL_OVERLAY,root->id,width,height};
+    if(os_ipc_send_handle(root->display_handle,&request,sizeof(request),(uint64_t)reply,OS_RIGHT_WRITE)!=(int64_t)sizeof(request)){os_handle_close((uint64_t)reply);return-1;}
+    obs_display_create_response_t response={0};int64_t surface=-1;
+    int64_t received=os_ipc_recv_handle((uint64_t)reply,&response,sizeof(response),&surface);os_handle_close((uint64_t)reply);
+    if(received!=(int64_t)sizeof(response)||response.status<0||surface<0)return-1;
+    uint32_t*pixels=os_shm_map((uint64_t)surface,(void*)SHELL_OVERLAY_MAP,1);
+    if(pixels==(void*)-1){os_handle_close((uint64_t)surface);return-1;}
+    overlay->surface_handle=(uint64_t)surface;overlay->mapping_address=SHELL_OVERLAY_MAP;overlay->pixels=pixels;overlay->width=response.width;overlay->height=response.height;
+    return 0;
+}
+int obs_desktop_overlay_configure(obs_window_t*root,obs_shell_overlay_t*overlay,int32_t x,int32_t y,int visible){
+    if(!root||!overlay||overlay->surface_handle==(uint64_t)-1)return-1;
+    obs_display_overlay_config_request_t request={OBS_DISPLAY_CONFIGURE_SHELL_OVERLAY,root->id,x,y,visible?1U:0U};
+    return os_ipc_send(root->display_handle,&request,sizeof(request))==(int64_t)sizeof(request)?0:-1;
+}
+void obs_desktop_overlay_close(obs_shell_overlay_t*overlay){
+    if(!overlay)return;
+    if(overlay->pixels)os_shm_unmap((void*)overlay->mapping_address);
+    if(overlay->surface_handle!=(uint64_t)-1)os_handle_close(overlay->surface_handle);
+    for(uint32_t i=0;i<sizeof(*overlay);i++)((uint8_t*)overlay)[i]=0;
+    overlay->surface_handle=(uint64_t)-1;
 }
 int obs_desktop_next_event(obs_window_t*w,obs_window_event_t*application,obs_desktop_management_event_t*management){
     if(!w||!application||!management||w->session_handle==(uint64_t)-1)return-1;

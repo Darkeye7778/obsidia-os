@@ -46,7 +46,7 @@ run_windows() {
     disk_windows=$(wslpath -w "$disk")
     display=${OBSIDIA_QEMU_WINDOWS_DISPLAY:-sdl,gl=off}
     echo "Interactive backend: Windows-native $qemu_exe ($display), PS/2 mouse"
-    exec "$qemu_exe" -machine pc -display "$display" -cdrom "$iso_windows" -serial stdio \
+    exec "$qemu_exe" -machine pc -boot d -display "$display" -cdrom "$iso_windows" -serial stdio \
         -drive "file=$disk_windows,format=raw,if=ide" -m 256
 }
 
@@ -55,11 +55,11 @@ run_linux() {
     local display=${OBSIDIA_QEMU_LINUX_DISPLAY:-gtk,gl=off}
     if (( is_wsl )); then
         echo "Interactive backend: Linux $qemu_exe via WSLg XWayland ($display), PS/2 mouse"
-        exec env GDK_BACKEND=${OBSIDIA_GDK_BACKEND:-x11} "$qemu_exe" -machine pc -display "$display" \
+        exec env GDK_BACKEND=${OBSIDIA_GDK_BACKEND:-x11} "$qemu_exe" -machine pc -boot d -display "$display" \
             -cdrom "$iso" -serial stdio -drive "file=$disk,format=raw,if=ide" -m 256
     fi
     echo "Interactive backend: Linux $qemu_exe ($display), PS/2 mouse"
-    exec "$qemu_exe" -machine pc -display "$display" -cdrom "$iso" -serial stdio \
+    exec "$qemu_exe" -machine pc -boot d -display "$display" -cdrom "$iso" -serial stdio \
         -drive "file=$disk,format=raw,if=ide" -m 256
 }
 

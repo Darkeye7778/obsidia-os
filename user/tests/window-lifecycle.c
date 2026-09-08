@@ -120,19 +120,19 @@ int obsidia_main(void){
         status=0;if(sys_wait((uint64_t)child,&status)<0||(mode==5?status>=0:status!=0))return 56;sys_sleep(3);if(stats(&after)<0||after.live_windows)return 57;
     }
 
-    fb_info_t fb;sys_fbinfo(&fb);obs_work_area_t work;if(obs_desktop_work_area(obs_desktop_layout_default(),(uint32_t)fb.width,(uint32_t)fb.height,&work)<0)return 58;obs_window_t root;if(obs_desktop_create_root(&root,(uint32_t)fb.width,(uint32_t)fb.height)<0||obs_desktop_configure_work_area(&root,work.x,work.y,work.width,work.height)<0)return 58;
+    fb_info_t fb;sys_fbinfo(&fb);obs_work_area_t work;if(obs_desktop_work_area(obs_desktop_layout_default(),(uint32_t)fb.width,(uint32_t)fb.height,&work)<0)return 58;obs_window_t root;if(obs_desktop_create_root(&root,(uint32_t)fb.width,(uint32_t)fb.height)<0||obs_desktop_configure_work_area(&root,work.x,work.y,work.width,work.height)<0)return 58;obs_shell_overlay_t overlay;if(obs_desktop_overlay_create(&root,&overlay,240,160)<0||obs_desktop_overlay_configure(&root,&overlay,12,work.y+8,1)<0||obs_desktop_overlay_configure(&root,&overlay,12,(int32_t)fb.height-work.y-168,1)<0)return 72;
     obs_window_t managed;if(os_window_create(&managed,180,100,"Managed")<0)return 59;uint32_t managed_id=managed.id;int saw_added=0,saw_removed=0;
     uint32_t managed_max_width=(uint32_t)fb.width-theme->metrics.border_width*2,managed_max_height=(uint32_t)fb.height-work.y-theme->metrics.titlebar_height-theme->metrics.border_width;
     if(os_window_maximize(&managed)<0||wait_resize(&managed,managed_max_width,managed_max_height)<0)return 68;
     if(obs_desktop_configure_work_area(&root,0,0,(uint32_t)fb.width,(uint32_t)fb.height-work.y)<0||wait_resize(&managed,managed_max_width,managed_max_height)<0)return 69;
     if(os_window_restore(&managed)<0||wait_resize(&managed,180,100)<0||managed.state!=OBS_WINDOW_NORMAL)return 70;
     if(obs_desktop_configure_work_area(&root,work.x,work.y,work.width,work.height)<0)return 71;
-    for(uint32_t i=0;i<8&&!saw_added;i++){obs_window_event_t event;obs_desktop_management_event_t m;if(obs_desktop_next_event(&root,&event,&m)<0)return 60;if(m.type==OBS_DESKTOP_EVENT_WINDOW_ADDED&&m.window_id==managed_id&&m.title[0]=='M'&&m.title[6]=='d'&&!m.title[7])saw_added=1;}if(!saw_added)return 61;
+    for(uint32_t i=0;i<8&&!saw_added;i++){obs_window_event_t event;obs_desktop_management_event_t m;if(obs_desktop_next_event(&root,&event,&m)<0)return 60;if(m.type==OBS_DESKTOP_EVENT_WINDOW_ADDED&&m.window_id==managed_id&&m.owner_pid==sys_getpid()&&m.title[0]=='M'&&m.title[6]=='d'&&!m.title[7])saw_added=1;}if(!saw_added)return 61;
     if(os_window_minimize(&managed)<0||obs_desktop_focus_restore(&root,managed_id)<0||os_window_close(&managed)<0)return 62;
     for(uint32_t i=0;i<8&&!saw_removed;i++){obs_window_event_t event;obs_desktop_management_event_t m;if(obs_desktop_next_event(&root,&event,&m)<0)return 63;if(m.type==OBS_DESKTOP_EVENT_WINDOW_REMOVED&&m.window_id==managed_id)saw_removed=1;}if(!saw_removed)return 64;
     if(stats(&before)<0||obs_desktop_focus_restore(&root,managed_id)<0)return 65;
-    sys_sleep(2);if(stats(&after)<0||after.rejected_requests<=before.rejected_requests)return 66;if(os_window_close(&root)<0)return 67;
+    sys_sleep(2);if(stats(&after)<0||after.rejected_requests<=before.rejected_requests)return 66;if(os_window_close(&root)<0)return 67;obs_desktop_overlay_close(&overlay);if(obs_desktop_create_root(&root,(uint32_t)fb.width,(uint32_t)fb.height)<0||obs_desktop_overlay_create(&root,&overlay,240,160)<0)return 73;obs_desktop_overlay_close(&overlay);if(os_window_close(&root)<0)return 74;
     os_handle_close((uint64_t)control);os_handle_close((uint64_t)display);
-    static const char passed[]="window-lifecycle: exact high-rate motion, close, 32 resize/8 maximize, abort/death/minimize, taskbar lifecycle passed\n";
+    static const char passed[]="window-lifecycle: motion, resize/lifecycle, owner PID and shell-overlay cleanup passed\n";
     sys_fd_write(1,passed,sizeof(passed)-1);return 0;
 }

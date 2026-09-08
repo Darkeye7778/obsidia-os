@@ -26,6 +26,7 @@ void serial_write(const char *str);
 
 static uint64_t* pml4 = 0;
 static uint64_t kernel_cr3 = 0;
+static uint64_t next_mmio_virtual=0xffff900000000000ULL;
 
 static uint64_t* alloc_page_table(void) {
     void* p = pmm_alloc_page();
@@ -122,6 +123,13 @@ static int map_page_in_root(uint64_t* root, uint64_t virt, uint64_t phys, uint64
 
 int paging_map_page(uint64_t virt, uint64_t phys, uint64_t flags) {
     return map_page_in_root(pml4, virt, phys, flags);
+}
+
+void*paging_map_mmio(uint64_t physical_address,uint64_t size){
+    if(!pml4||!size||size>16ULL*1024*1024||physical_address>UINT64_MAX-size)return 0;uint64_t offset=physical_address&0xfff,base=physical_address&~0xfffULL,pages=(offset+size+4095)/4096;
+    uint64_t virtual_base=next_mmio_virtual;if(virtual_base>UINT64_MAX-pages*4096)return 0;
+    for(uint64_t i=0;i<pages;i++)if(!paging_map_page(virtual_base+i*4096,base+i*4096,PTE_WRITABLE|PTE_PCD|PTE_PWT|PTE_NX))return 0;
+    next_mmio_virtual+=pages*4096;return(void*)(virtual_base+offset);
 }
 
 int paging_map_page_in(uint64_t cr3, uint64_t virt, uint64_t phys, uint64_t flags) {

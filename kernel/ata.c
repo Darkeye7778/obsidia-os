@@ -7,6 +7,7 @@
 
 extern void outb(uint16_t port, uint8_t val);
 extern uint8_t inb(uint16_t port);
+extern void serial_write(const char*);
 
 #define ATA_PRIMARY_DATA    0x1F0
 #define ATA_PRIMARY_ERR     0x1F1
@@ -23,6 +24,7 @@ static inline void ata_400ns_delay(void) {
 }
 static inline uint16_t ata_inw(uint16_t port){uint16_t value;__asm__ volatile("inw %1,%0":"=a"(value):"Nd"(port));return value;}
 static inline void ata_outw(uint16_t port,uint16_t value){__asm__ volatile("outw %0,%1"::"a"(value),"Nd"(port));}
+static void identify_text(char*out,uint32_t capacity,const uint16_t*identify,uint32_t first,uint32_t words){uint32_t at=0;for(uint32_t i=0;i<words&&at+1<capacity;i++){uint16_t word=identify[first+i];out[at++]=(char)(word>>8);if(at+1<capacity)out[at++]=(char)word;}while(at&&out[at-1]==' ')at--;out[at]=0;}
 
 static int ata_wait_busy(void) {
     uint8_t status;
@@ -76,6 +78,7 @@ static int ata_block_write(block_device_t* dev, uint64_t lba, uint64_t count, co
     (void)dev;
     return ata_write_sectors(lba, count, buf);
 }
+static int ata_block_flush(block_device_t*dev){(void)dev;if(ata_wait_busy())return-1;outb(ATA_PRIMARY_CMD,0xE7);return ata_wait_busy();}
 
 void ata_init(void) {
     console_print("ATA skeleton initialized\n");
@@ -96,6 +99,7 @@ int ata_detect_and_register(void) {
     uint64_t sectors=(uint64_t)identify[60]|((uint64_t)identify[61]<<16);if(!sectors)return-1;
     block_device_t* dev = (block_device_t*)kmalloc(sizeof(block_device_t));
     if (!dev) return -1;
+    for(uint32_t n=0;n<sizeof(*dev);n++)((uint8_t*)dev)[n]=0;
 
     int i=0; for (; "ata0"[i] && i<31; i++) dev->name[i]="ata0"[i]; dev->name[i]=0;
     dev->type = BLOCK_TYPE_ATA;
@@ -103,11 +107,16 @@ int ata_detect_and_register(void) {
     dev->block_count = sectors;
     dev->read = ata_block_read;
     dev->write = ata_block_write;
+    dev->flush = ata_block_flush;
     dev->private_data = 0;
+    dev->parent = 0;
     dev->next = 0;
+    dev->online = 1;
+    char model[41],serial[21];identify_text(model,sizeof(model),identify,27,20);identify_text(serial,sizeof(serial),identify,10,10);block_set_identity(dev,model,serial);
 
     if (block_register(dev) == 0) {
         console_print("ATA disk registered as ata0 (PIO read/write)\n");
+        serial_write("ATA: PIO disk registered: ");serial_write(dev->model);serial_write("\n");
         return 0;
     }
     return -1;

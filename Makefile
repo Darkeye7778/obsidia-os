@@ -28,6 +28,8 @@ LIMINE_BIN := $(LIMINE_DIR)/limine
 
 CFLAGS := \
     -ffreestanding \
+    -MMD \
+    -MP \
     -m64 \
     -mcmodel=kernel \
     -mno-red-zone \
@@ -76,6 +78,8 @@ USER_LD := ld
 
 USER_CFLAGS := \
     -ffreestanding \
+    -MMD \
+    -MP \
     -m64 \
     -mcmodel=large \
     -mno-red-zone \
@@ -121,7 +125,7 @@ $(USER_LIB): $(USER_LIB_OBJS)
 define USER_ELF
 $(USER_BUILD)/$(1).elf: $(2) $(USER_CRT0) $(USER_LIB) user/runtime/linker.ld
 >@mkdir -p $$(dir $$@)
->$(USER_CC) $(USER_CFLAGS) -c $(2) -o $(USER_BUILD)/$(1).main.o
+>$(USER_CC) $(USER_CFLAGS) -MF $(USER_BUILD)/$(1).d -MT $$@ -c $(2) -o $(USER_BUILD)/$(1).main.o
 >$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $(USER_BUILD)/$(1).main.o $(USER_LIB) -o $$@
 >@rm -f $(USER_BUILD)/$(1).main.o
 endef
@@ -131,7 +135,7 @@ endef
 define USER_OBSX
 $(USER_BUILD)/$(1).$(NATIVE_EXEC_EXT).elf: $(2) $(USER_CRT0) $(USER_LIB) user/runtime/linker.ld
 >@mkdir -p $$(dir $$@)
->$(USER_CC) $(USER_CFLAGS) -c $(2) -o $(USER_BUILD)/$(1).obsx.o
+>$(USER_CC) $(USER_CFLAGS) -MF $(USER_BUILD)/$(1).$(NATIVE_EXEC_EXT).d -MT $$@ -c $(2) -o $(USER_BUILD)/$(1).obsx.o
 >$(USER_LD) $(USER_LDFLAGS) $(USER_CRT0) $(USER_BUILD)/$(1).obsx.o $(USER_LIB) -o $$@
 >@rm -f $(USER_BUILD)/$(1).obsx.o
 $(USER_BUILD)/$(1).$(NATIVE_EXEC_EXT): $(USER_BUILD)/$(1).$(NATIVE_EXEC_EXT).elf tools/mkobs.py
@@ -151,6 +155,7 @@ $(eval $(call USER_OBSX,apps/desktop,user/apps/desktop/main.c))
 $(eval $(call USER_OBSX,services/displayd,user/services/displayd/main.c))
 $(eval $(call USER_OBSX,services/inputd,user/services/inputd/main.c))
 $(eval $(call USER_OBSX,system/serviced,user/system/serviced/main.c))
+$(eval $(call USER_OBSX,system/appd,user/system/appd/main.c))
 $(eval $(call USER_OBSX,system/settingsd,user/system/settingsd/main.c))
 $(eval $(call USER_OBSX,apps/window-demo,user/apps/window-demo/main.c))
 $(eval $(call USER_OBSX,apps/settings-demo,user/apps/settings-demo/main.c))
@@ -159,6 +164,7 @@ $(eval $(call USER_OBSX,tests/window-abrupt,user/tests/window-abrupt.c))
 $(eval $(call USER_OBSX,tests/window-lifecycle,user/tests/window-lifecycle.c))
 $(eval $(call USER_OBSX,tests/settings,user/tests/settings.c))
 $(eval $(call USER_OBSX,tests/settings-subscriber,user/tests/settings-subscriber.c))
+$(eval $(call USER_OBSX,tests/process-child,user/tests/process-child.c))
 
 # ============================================================
 # Kernel/platform regression tests
@@ -174,6 +180,11 @@ $(eval $(call USER_ELF,tests/surface,user/tests/surface.c))
 $(eval $(call USER_ELF,tests/vm,user/tests/vm.c))
 $(eval $(call USER_ELF,tests/fault,user/tests/fault.c))
 $(eval $(call USER_ELF,tests/presentation,user/tests/presentation.c))
+$(eval $(call USER_ELF,tests/app-manifest,user/tests/app-manifest.c))
+$(eval $(call USER_ELF,tests/app-catalog,user/tests/app-catalog.c))
+$(eval $(call USER_ELF,tests/process-info,user/tests/process-info.c))
+$(eval $(call USER_ELF,tests/shell-model,user/tests/shell-model.c))
+$(eval $(call USER_ELF,tests/system-control,user/tests/system-control.c))
 
 $(USER_BUILD)/fixtures/win-smoke.exe: tools/mkpe_fixture.py
 >@mkdir -p $(dir $@)
@@ -215,6 +226,7 @@ USER_PROGRAMS := \
     $(USER_BUILD)/services/displayd.obsx \
     $(USER_BUILD)/services/inputd.obsx \
     $(USER_BUILD)/system/serviced.obsx \
+    $(USER_BUILD)/system/appd.obsx \
     $(USER_BUILD)/system/settingsd.obsx \
     $(USER_BUILD)/apps/window-demo.obsx \
     $(USER_BUILD)/apps/settings-demo.obsx \
@@ -223,6 +235,7 @@ USER_PROGRAMS := \
     $(USER_BUILD)/tests/window-lifecycle.obsx \
     $(USER_BUILD)/tests/settings.obsx \
     $(USER_BUILD)/tests/settings-subscriber.obsx \
+    $(USER_BUILD)/tests/process-child.obsx \
     $(USER_BUILD)/tests/fpu.elf \
     $(USER_BUILD)/tests/fs.elf \
     $(USER_BUILD)/tests/invalid.elf \
@@ -233,10 +246,21 @@ USER_PROGRAMS := \
     $(USER_BUILD)/tests/vm.elf \
     $(USER_BUILD)/tests/fault.elf \
     $(USER_BUILD)/tests/presentation.elf \
+    $(USER_BUILD)/tests/app-manifest.elf \
+    $(USER_BUILD)/tests/app-catalog.elf \
+    $(USER_BUILD)/tests/process-info.elf \
+    $(USER_BUILD)/tests/shell-model.elf \
+    $(USER_BUILD)/tests/system-control.elf \
     $(USER_BUILD)/fixtures/win-smoke.exe \
     $(USER_BUILD)/fixtures/imports.exe \
     $(USER_BUILD)/fixtures/malformed.exe \
     $(USER_BUILD)/fixtures/win32.exe
+
+# Compiler-generated dependency files make public header changes rebuild every
+# affected kernel and userspace consumer.  This is intentionally discovered
+# from build/ so generated program rules do not need a second hand-maintained
+# list that can drift from USER_PROGRAMS.
+-include $(shell find $(BUILD_DIR) -type f -name '*.d' 2>/dev/null)
 
 LEGACY_RAW_PROGRAMS := $(USER_BUILD)/tests/fault_user.bin $(USER_BUILD)/tests/hello_user.bin $(USER_BUILD)/tests/input_user.bin
 
@@ -264,6 +288,7 @@ rootfs: $(USER_PROGRAMS)
 >cp $(USER_BUILD)/services/displayd.obsx $(ROOTFS_BUILD)/displayd.obsx
 >cp $(USER_BUILD)/services/inputd.obsx   $(ROOTFS_BUILD)/inputd.obsx
 >cp $(USER_BUILD)/system/serviced.obsx   $(ROOTFS_BUILD)/serviced.obsx
+>cp $(USER_BUILD)/system/appd.obsx       $(ROOTFS_BUILD)/appd.obsx
 >cp $(USER_BUILD)/system/settingsd.obsx  $(ROOTFS_BUILD)/settingsd.obsx
 >cp $(USER_BUILD)/apps/window-demo.obsx  $(ROOTFS_BUILD)/window-demo.obsx
 >cp $(USER_BUILD)/apps/settings-demo.obsx $(ROOTFS_BUILD)/settings-demo.obsx
@@ -272,6 +297,7 @@ rootfs: $(USER_PROGRAMS)
 >cp $(USER_BUILD)/tests/window-lifecycle.obsx $(ROOTFS_BUILD)/window-lifecycle.obsx
 >cp $(USER_BUILD)/tests/settings.obsx $(ROOTFS_BUILD)/settings.obsx
 >cp $(USER_BUILD)/tests/settings-subscriber.obsx $(ROOTFS_BUILD)/settings-subscriber.obsx
+>cp $(USER_BUILD)/tests/process-child.obsx $(ROOTFS_BUILD)/process-child.obsx
 >cp $(USER_BUILD)/tests/fpu.elf         $(ROOTFS_BUILD)/fpu.elf
 >cp $(USER_BUILD)/tests/fs.elf          $(ROOTFS_BUILD)/fs.elf
 >cp $(USER_BUILD)/tests/invalid.elf     $(ROOTFS_BUILD)/invalid.elf
@@ -282,6 +308,11 @@ rootfs: $(USER_PROGRAMS)
 >cp $(USER_BUILD)/tests/vm.elf          $(ROOTFS_BUILD)/vm.elf
 >cp $(USER_BUILD)/tests/fault.elf       $(ROOTFS_BUILD)/fault.elf
 >cp $(USER_BUILD)/tests/presentation.elf $(ROOTFS_BUILD)/presentation.elf
+>cp $(USER_BUILD)/tests/app-manifest.elf $(ROOTFS_BUILD)/app-manifest.elf
+>cp $(USER_BUILD)/tests/app-catalog.elf $(ROOTFS_BUILD)/app-catalog.elf
+>cp $(USER_BUILD)/tests/process-info.elf $(ROOTFS_BUILD)/process-info.elf
+>cp $(USER_BUILD)/tests/shell-model.elf $(ROOTFS_BUILD)/shell-model.elf
+>cp $(USER_BUILD)/tests/system-control.elf $(ROOTFS_BUILD)/system-control.elf
 >cp $(USER_BUILD)/fixtures/win-smoke.exe $(ROOTFS_BUILD)/win-smoke.exe
 >cp $(USER_BUILD)/fixtures/imports.exe  $(ROOTFS_BUILD)/imports.exe
 >cp $(USER_BUILD)/fixtures/malformed.exe $(ROOTFS_BUILD)/malformed.exe
@@ -388,7 +419,7 @@ $(TEST_ISO): $(LIMINE_BIN) $(KERNEL) $(TEST_INITRD)
 
 $(DISK):
 >@mkdir -p $(dir $@)
->dd if=/dev/zero of=$@ bs=1M count=10 2>/dev/null
+>python3 tools/mkstate_disk.py $@
 >@echo "Test disk image created: $@"
 
 # Compatibility target for old commands such as:
@@ -400,7 +431,7 @@ obsidia_disk.img: $(DISK)
 # Top-level targets
 # ============================================================
 
-.PHONY: all build iso run run-linux run-windows test-build test-run clean distclean
+.PHONY: all build iso run run-linux run-windows test-build test-run test-run-ahci clean distclean
 
 all: build
 
@@ -427,9 +458,23 @@ test-build: $(TEST_ISO)
 
 test-run: $(TEST_ISO) $(DISK)
 >qemu-system-x86_64 \
+>    -boot d \
 >    -cdrom $(TEST_ISO) \
 >    -serial stdio \
+>    -display none \
 >    -drive file=$(DISK),format=raw,if=ide \
+>    -m 256
+
+test-run-ahci: $(TEST_ISO) $(DISK)
+>qemu-system-x86_64 \
+>    -machine pc \
+>    -boot d \
+>    -cdrom $(TEST_ISO) \
+>    -serial stdio \
+>    -display none \
+>    -device ich9-ahci,id=ahci \
+>    -drive file=$(DISK),format=raw,if=none,id=state \
+>    -device ide-hd,drive=state,bus=ahci.0 \
 >    -m 256
 
 clean:

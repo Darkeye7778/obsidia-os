@@ -1,0 +1,7 @@
+manifest-version=1
+id=org.obsidia.window-demo
+name=Window Demo
+executable=window-demo.obsx
+version=1.0
+icon=window-demo
+capabilities=none

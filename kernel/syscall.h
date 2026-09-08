@@ -41,6 +41,14 @@ void syscall_init(void);
 #define SYS_HANDLE_HAS_REMOTE    34
 #define SYS_IPC_TRY_SEND_HANDLE  35
 #define SYS_INPUT_TRY_READ       36
+#define SYS_PROCESS_INFO         37
+#define SYS_FD_SYNC              38
+#define SYS_RENAME               39
+#define SYS_MKDIR                40
+#define SYS_UNLINK               41
+#define SYS_STAT                 42
+#define SYS_READDIR              43
+#define SYS_SYSTEM_CONTROL       44
 
 // Simple fb info struct for user
 typedef struct {

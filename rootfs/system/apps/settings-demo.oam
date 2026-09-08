@@ -1,0 +1,7 @@
+manifest-version=1
+id=org.obsidia.settings-demo
+name=Appearance
+executable=settings-demo.obsx
+version=1.0
+icon=settings
+capabilities=none

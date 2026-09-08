@@ -13,6 +13,8 @@
 #define OBS_DISPLAY_WINDOW_ACTION 9U
 #define OBS_DISPLAY_CONFIGURE_ROOT 10U
 #define OBS_DISPLAY_MANAGE_WINDOW 11U
+#define OBS_DISPLAY_CREATE_SHELL_OVERLAY 12U
+#define OBS_DISPLAY_CONFIGURE_SHELL_OVERLAY 13U
 
 #define OBS_DISPLAY_ACTION_MINIMIZE 1U
 #define OBS_DISPLAY_ACTION_MAXIMIZE 2U
@@ -28,6 +30,8 @@ typedef struct { uint32_t operation,window_id,transaction,result; } obs_display_
 typedef struct { uint32_t operation,window_id,action,reserved; } obs_display_action_request_t;
 typedef struct { uint32_t operation,root_id; int32_t x,y; uint32_t width,height; } obs_display_root_config_request_t;
 typedef struct { uint32_t operation,root_id,window_id,action; } obs_display_manage_request_t;
+typedef struct { uint32_t operation,root_id,width,height; } obs_display_overlay_create_request_t;
+typedef struct { uint32_t operation,root_id; int32_t x,y; uint32_t visible; } obs_display_overlay_config_request_t;
 typedef struct { uint32_t operation; obs_input_event_t event; } obs_display_input_request_t;
 typedef struct { int32_t status; uint32_t window_id,width,height; } obs_display_create_response_t;
 typedef struct { int32_t status; } obs_display_close_response_t;

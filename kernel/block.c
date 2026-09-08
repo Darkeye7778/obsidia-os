@@ -36,6 +36,7 @@ static int ramdisk_write(block_device_t* dev, uint64_t lba, uint64_t count, cons
     }
     return 0;
 }
+static int ramdisk_flush(block_device_t* dev){(void)dev;return 0;}
 
 block_device_t* block_create_ramdisk(const char* name, uint64_t size_bytes) {
     if (size_bytes == 0 || (size_bytes % 512) != 0) return 0;
@@ -56,6 +57,7 @@ block_device_t* block_create_ramdisk(const char* name, uint64_t size_bytes) {
     // zero the disk
     for (uint64_t i = 0; i < size_bytes; i++) priv->data[i] = 0;
 
+    for(uint64_t n=0;n<sizeof(*dev);n++)((uint8_t*)dev)[n]=0;
     // fill dev
     int i = 0;
     for (; name[i] && i < 31; i++) dev->name[i] = name[i];
@@ -65,8 +67,12 @@ block_device_t* block_create_ramdisk(const char* name, uint64_t size_bytes) {
     dev->block_count = size_bytes / 512;
     dev->read = ramdisk_read;
     dev->write = ramdisk_write;
+    dev->flush = ramdisk_flush;
     dev->private_data = priv;
+    dev->parent = 0;
     dev->next = 0;
+    dev->online = 1;
+    block_set_identity(dev,"Obsidia memory disk","");
 
     if (block_register(dev) != 0){kfree(priv->data);kfree(priv);kfree(dev);return 0;}
     return dev;
@@ -83,6 +89,7 @@ void block_init(void) {
 
 int block_register(block_device_t* dev) {
     if (!dev || !dev->name[0] || !dev->read) return -1;
+    if(block_find(dev->name))return -1;
 
     dev->next = block_devices;
     block_devices = dev;
@@ -91,6 +98,10 @@ int block_register(block_device_t* dev) {
     console_print(dev->name);
     console_print("\n");
     return 0;
+}
+
+void block_set_identity(block_device_t*dev,const char*model,const char*serial){
+    if(!dev)return;uint32_t i=0;if(model)for(;model[i]&&i+1<sizeof(dev->model);i++)dev->model[i]=model[i];dev->model[i]=0;i=0;if(serial)for(;serial[i]&&i+1<sizeof(dev->serial);i++)dev->serial[i]=serial[i];dev->serial[i]=0;
 }
 
 void block_list(void) {
@@ -108,6 +119,7 @@ void block_list(void) {
             case BLOCK_TYPE_RAMDISK: console_print("ramdisk"); break;
             case BLOCK_TYPE_ATA: console_print("ata"); break;
             case BLOCK_TYPE_VIRTIO: console_print("virtio"); break;
+            case BLOCK_TYPE_PARTITION: console_print("partition"); break;
             default: console_print("unknown"); break;
         }
         console_print(" blksz=");
@@ -125,6 +137,9 @@ void block_list(void) {
         if (bc == 0) { numbuf[i++]='0'; }
         while (bc > 0 && i < 30) { numbuf[i++] = '0' + (bc % 10); bc /= 10; }
         while (i > 0) console_putc(numbuf[--i]);
+        if(d->model[0]){console_print(" model=");console_print(d->model);}
+        if(d->serial[0]){console_print(" serial=");console_print(d->serial);}
+        console_print(d->online?" online":" offline");
         console_print("\n");
         d = d->next;
     }
@@ -143,13 +158,16 @@ block_device_t* block_find(const char* name) {
     }
     return 0;
 }
+block_device_t* block_first_device(void){return block_devices;}
 
 int block_read(block_device_t* dev, uint64_t lba, uint64_t count, void* buf) {
-    if (!dev || !dev->read) return -1;
-    return dev->read(dev, lba, count, buf);
+    if (!dev || !dev->read || !buf || !count || lba>=dev->block_count || count>dev->block_count-lba) return -1;
+    int result=dev->read(dev,lba,count,buf);if(result)dev->read_errors++;return result;
 }
 
 int block_write(block_device_t* dev, uint64_t lba, uint64_t count, const void* buf) {
-    if (!dev || !dev->write) return -1;
-    return dev->write(dev, lba, count, buf);
+    if (!dev || !dev->write || !buf || !count || lba>=dev->block_count || count>dev->block_count-lba) return -1;
+    int result=dev->write(dev,lba,count,buf);if(result)dev->write_errors++;return result;
 }
+int block_flush(block_device_t* dev){return !dev||!dev->flush?-1:dev->flush(dev);}
+int block_flush_all(void){int result=0;for(block_device_t*d=block_devices;d;d=d->next)if(!d->parent&&d->flush&&d->flush(d))result=-1;return result;}

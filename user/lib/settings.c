@@ -61,4 +61,21 @@ int obs_settings_try_next(obs_settings_t*s,obs_settings_event_t*event){
     return 1;
 }
 int obs_settings_query_subscribers(obs_settings_t*s,uint32_t*count){if(!s||!count||s->service_handle==(uint64_t)-1)return OBS_SETTINGS_ERROR;obs_settings_request_t q={OBS_SETTINGS_PROTOCOL_VERSION,OBS_SETTINGS_OP_QUERY_SUBSCRIBERS,0,0,{0}};obs_settings_response_t r={0};int status=request_reply(s->service_handle,&q,&r);if(!status)*count=r.value.u32;return status;}
+static int pin_request(uint64_t endpoint,uint32_t operation,uint32_t index,const char*id,obs_settings_pin_response_t*r){
+    obs_settings_pin_request_t q={OBS_SETTINGS_PROTOCOL_VERSION,operation,index,0,{0}};uint32_t i=0;if(id){for(;i<sizeof(q.application_id)-1&&id[i];i++)q.application_id[i]=id[i];if(id[i])return OBS_SETTINGS_INVALID_VALUE;}
+    int64_t reply=os_ipc_create();if(reply<0)return OBS_SETTINGS_ERROR;int result=OBS_SETTINGS_ERROR;
+    if(os_ipc_send_handle(endpoint,&q,sizeof(q),(uint64_t)reply,OS_RIGHT_WRITE)==(int64_t)sizeof(q)&&os_ipc_recv((uint64_t)reply,r,sizeof(*r))==(int64_t)sizeof(*r))result=r->status;
+    os_handle_close((uint64_t)reply);return result;
+}
+int obs_settings_get_pinned_apps(obs_settings_t*s,obs_pinned_apps_t*pins){
+    if(!s||!pins||s->service_handle==(uint64_t)-1)return OBS_SETTINGS_ERROR;
+    pins->count=0;
+    obs_settings_pin_response_t r={0};
+    int status=pin_request(s->service_handle,OBS_SETTINGS_OP_GET_PIN,0,0,&r);
+    if(status<0)return status;
+    if(r.count>OBS_SETTINGS_MAX_PINNED_APPS)return OBS_SETTINGS_ERROR;
+    for(uint32_t i=0;i<r.count;i++){if(i&&pin_request(s->service_handle,OBS_SETTINGS_OP_GET_PIN,i,0,&r)<0)return OBS_SETTINGS_ERROR;for(uint32_t n=0;n<OBS_APP_ID_MAX;n++)pins->ids[i][n]=r.application_id[n];pins->ids[i][OBS_APP_ID_MAX-1]=0;}pins->count=r.count;return 0;
+}
+int obs_settings_pin_app(obs_settings_t*s,const char*id){if(!s||s->authority_handle==(uint64_t)-1)return OBS_SETTINGS_DENIED;obs_settings_pin_response_t r={0};return pin_request(s->authority_handle,OBS_SETTINGS_OP_PIN,0,id,&r);}
+int obs_settings_unpin_app(obs_settings_t*s,const char*id){if(!s||s->authority_handle==(uint64_t)-1)return OBS_SETTINGS_DENIED;obs_settings_pin_response_t r={0};return pin_request(s->authority_handle,OBS_SETTINGS_OP_UNPIN,0,id,&r);}
 void obs_settings_close(obs_settings_t*s){if(!s)return;if(s->event_handle!=(uint64_t)-1)os_handle_close(s->event_handle);if(s->service_handle!=(uint64_t)-1)os_handle_close(s->service_handle);clear(s);}

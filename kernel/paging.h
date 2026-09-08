@@ -31,3 +31,4 @@ void paging_preserve_limine_modules(void);
 // Invalidate TLB entry for a page (to ensure writes to a late-allocated pmm page
 // are visible after identity mapping).
 void paging_invlpg(uint64_t addr);
+void* paging_map_mmio(uint64_t physical_address,uint64_t size);

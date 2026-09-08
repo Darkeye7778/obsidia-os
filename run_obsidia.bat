@@ -37,7 +37,7 @@ if not defined QEMU_EXE (
 )
 
 if not defined OBSIDIA_QEMU_WINDOWS_DISPLAY set "OBSIDIA_QEMU_WINDOWS_DISPLAY=sdl,gl=off"
-"%QEMU_EXE%" -machine pc -display "%OBSIDIA_QEMU_WINDOWS_DISPLAY%" -cdrom "%CD%\build\obsidia.iso" -serial stdio -drive "file=%CD%\build\obsidia_disk.img,format=raw,if=ide" -m 256
+"%QEMU_EXE%" -machine pc -boot d -display "%OBSIDIA_QEMU_WINDOWS_DISPLAY%" -cdrom "%CD%\build\obsidia.iso" -serial stdio -drive "file=%CD%\build\obsidia_disk.img,format=raw,if=ide" -m 256
 set "RESULT=%ERRORLEVEL%"
 popd
 exit /b %RESULT%

@@ -7,6 +7,7 @@
 #define MAX_PROCESSES 16
 #define MAX_FDS 16
 #define MAX_HANDLES 64
+typedef struct {uint64_t pid,parent_pid;char image[TASK_NAME_LEN];} task_process_info_t;
 struct kobject;
 typedef struct { struct kobject* object; uint32_t generation; uint32_t rights; uint8_t inheritable; } handle_entry_t;
 
@@ -96,6 +97,7 @@ int task_wait_child(uint64_t pid, int64_t* status);
 // Get current pid etc for syscalls
 uint64_t task_get_current_pid(void);
 int task_process_alive(uint64_t pid);
+int task_process_info(uint64_t pid,task_process_info_t* info);
 int task_handle_has_remote(process_t* owner,uint64_t handle);
 
 // For debug

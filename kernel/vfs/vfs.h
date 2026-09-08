@@ -13,6 +13,9 @@ typedef struct vfs_ops {
     int64_t (*read)(vfs_node_t* node, uint64_t offset, void* buf, uint64_t len);
     int64_t (*write)(vfs_node_t* node, uint64_t offset, const void* buf, uint64_t len);
     vfs_node_t* (*create)(vfs_node_t* dir, const char* name, vfs_node_type_t type);
+    int (*sync)(vfs_node_t* node);
+    int (*rename)(vfs_node_t* node,vfs_node_t* new_dir,const char* new_name,int replace);
+    int (*unlink)(vfs_node_t* node);
     void (*close)(vfs_node_t* node);
 } vfs_ops_t;
 
@@ -21,6 +24,9 @@ struct vfs_node {
     vfs_node_type_t type;
     uint64_t size;
     uint64_t flags;
+    uint64_t created_ticks;
+    uint64_t modified_ticks;
+    uint32_t open_refs;
 
     vfs_ops_t* ops;      // per-FS operations
     void* fs_data;       // backend private (ramfs data, block dev, etc)
@@ -30,6 +36,19 @@ struct vfs_node {
     vfs_node_t* children;  // head of child list for dirs
 };
 typedef struct open_file { vfs_node_t* node; uint64_t offset; uint32_t flags; uint32_t refs; } open_file_t;
+typedef struct vfs_stat {
+    uint32_t type;
+    uint32_t flags;
+    uint64_t size;
+    uint64_t created_ticks;
+    uint64_t modified_ticks;
+} vfs_stat_t;
+typedef struct vfs_dirent {
+    uint32_t type;
+    uint32_t reserved;
+    uint64_t size;
+    char name[128];
+} vfs_dirent_t;
 #define VFS_OPEN_CREATE 1U
 #define VFS_OPEN_TRUNC  2U
 open_file_t* vfs_open_file(const char* path,uint32_t flags);
@@ -37,6 +56,12 @@ void vfs_file_retain(open_file_t* file);
 void vfs_file_release(open_file_t* file);
 int64_t vfs_file_read(open_file_t* file,void* buf,uint64_t len);
 int64_t vfs_file_write(open_file_t* file,const void* buf,uint64_t len);
+int vfs_file_sync(open_file_t* file);
+int vfs_rename(const char* old_path,const char* new_path,int replace);
+int vfs_mkdir(const char* path);
+int vfs_unlink(const char* path,int directory);
+int vfs_stat(const char* path,vfs_stat_t* result);
+int vfs_readdir(const char* path,uint32_t index,vfs_dirent_t* result);
 
 void vfs_init(void);
 
@@ -45,6 +70,8 @@ int vfs_mount_initrd_from(uint64_t raw_addr, uint64_t raw_size);
 
 // Mount a ramfs at given path (e.g. "/tmp")
 int vfs_mount_ramfs(const char* path);
+struct block_device;
+int vfs_mount_statefs(const char* path,struct block_device* device);
 
 // Lookup
 vfs_node_t* vfs_open(const char* path);
