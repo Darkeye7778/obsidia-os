@@ -3,6 +3,7 @@
 #include "console/console.h"
 #include "drivers/framebuffer.h"
 #include "timer.h"
+#include "rtc.h"
 #include "task.h"
 #include "paging.h"
 #include "usercopy.h"
@@ -71,6 +72,15 @@ static void syscall_handler(registers_t* regs) {
         case SYS_GETTICKS:
             regs->rax = timer_get_ticks();
             break;
+        case SYS_TIME_MONOTONIC:
+            regs->rax = timer_monotonic_ns();
+            break;
+        case SYS_TIME_RESOLUTION:
+            regs->rax = timer_monotonic_resolution_ns();
+            break;
+        case SYS_TIME_WALL_UTC:{
+            uint64_t seconds=0;regs->rax=rtc_read_utc_seconds(&seconds)?UINT64_MAX:seconds;break;
+        }
 
         case SYS_YIELD:
             regs->rax = 0;

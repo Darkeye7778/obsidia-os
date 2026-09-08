@@ -74,23 +74,30 @@ static void mouse_irq_handler(registers_t*registers){
     uint8_t byte=inb(PS2_DATA);irq_count++;decoded_packet_t decoded;if(!parser_feed(byte,&decoded))return;emit_packet(&decoded);if(!(packet_count&255U))print_summary();
 }
 
-void mouse_init(void){
+static int mouse_initialize(void){
     packet_index=old_buttons=0;irq_count=packet_count=motion_event_count=overflow_count=resync_count=absolute_dx=absolute_dy=0;
-    if(!parser_self_test()){serial_write("PS/2 mouse parser self-test FAILED\n");return;}serial_write("PS/2 mouse parser self-test passed\n");
-    if(!controller_command(0xa8)||!controller_command(0x20)||!wait_read()){serial_write("PS/2 mouse unavailable\n");return;}
+    if(!parser_self_test()){serial_write("PS/2 mouse parser self-test FAILED\n");return 0;}serial_write("PS/2 mouse parser self-test passed\n");
+    if(!controller_command(0xa8)||!controller_command(0x20)||!wait_read()){serial_write("PS/2 mouse unavailable\n");return 0;}
     uint8_t configuration=inb(PS2_DATA);configuration|=2;configuration&=(uint8_t)~0x20;
-    if(!controller_command(0x60)||!wait_write()){serial_write("PS/2 mouse configuration failed\n");return;}outb(PS2_DATA,configuration);
+    if(!controller_command(0x60)||!wait_write()){serial_write("PS/2 mouse configuration failed\n");return 0;}outb(PS2_DATA,configuration);
     /* Measure the device baseline, then establish a known linear mode. */
     uint8_t device_status,device_resolution,device_sample_rate;
     if(!mouse_command(0xf6)||!mouse_status(&device_status,&device_resolution,&device_sample_rate)){
-        serial_write("PS/2 mouse defaults/status failed\n");return;
+        serial_write("PS/2 mouse defaults/status failed\n");return 0;
     }
     print_device_status("defaults",device_status,device_resolution,device_sample_rate);
     if(!mouse_command(0xe6)||!mouse_command(0xe8)||!mouse_command(3)||!mouse_command(0xf3)||!mouse_command(200)||!mouse_status(&device_status,&device_resolution,&device_sample_rate)){
-        serial_write("PS/2 mouse parameter configuration failed\n");return;
+        serial_write("PS/2 mouse parameter configuration failed\n");return 0;
     }
     print_device_status("configured",device_status,device_resolution,device_sample_rate);
-    idt_set_handler(44,mouse_irq_handler);if(!mouse_command(0xf4)){serial_write("PS/2 mouse enable failed\n");return;}
+    if(idt_add_handler(44,mouse_irq_handler)){serial_write("PS/2 mouse IRQ registration failed\n");return 0;}if(!mouse_command(0xf4)){serial_write("PS/2 mouse enable failed\n");return 0;}
     interrupt_unmask_irq(12);
     serial_write("PS/2 mouse initialized: stream, scaling 1:1, resolution 8 counts/mm, sample 200 Hz\n");
+    return 1;
+}
+
+void mouse_init(void){
+    uint64_t flags;__asm__ volatile("pushfq; pop %0; cli":"=r"(flags)::"memory");
+    (void)mouse_initialize();
+    if(flags&(1ULL<<9))__asm__ volatile("sti":::"memory");
 }

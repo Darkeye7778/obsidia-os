@@ -10,7 +10,13 @@ int os_service_register_restricted(const char* name,uint64_t endpoint,uint32_t c
     int64_t port=os_service_port_open();if(port<0)return-1;
     int64_t sent=os_ipc_send_handle((uint64_t)port,&request,sizeof(request),endpoint,
         OS_RIGHT_READ|OS_RIGHT_WRITE|OS_RIGHT_DUP);
-    os_handle_close((uint64_t)port);return sent==(int64_t)sizeof(request)?0:-1;
+    os_handle_close((uint64_t)port);
+    if(sent!=(int64_t)sizeof(request))return-1;
+    /* Registration is complete only after serviced has validated and inserted
+       the entry.  This acknowledgment makes a service's subsequent "ready"
+       log a real discovery barrier rather than an asynchronous send marker. */
+    uint8_t response=1;
+    return os_ipc_recv(endpoint,&response,1)==1&&response==0?0:-1;
 }
 
 int os_service_register(const char* name,uint64_t endpoint) {
@@ -32,4 +38,12 @@ int64_t os_service_connect(const char* name) {
     int64_t received=os_ipc_recv_handle((uint64_t)reply,&response,1,&service);
     os_handle_close((uint64_t)port);os_handle_close((uint64_t)reply);
     return received==1&&response==0?service:-1;
+}
+
+int64_t os_service_connect_wait(const char*name,uint32_t timeout_ticks){
+    for(uint32_t elapsed=0;;elapsed++){
+        int64_t service=os_service_connect(name);if(service>=0)return service;
+        if(elapsed>=timeout_ticks)return-1;
+        sys_sleep(1);
+    }
 }

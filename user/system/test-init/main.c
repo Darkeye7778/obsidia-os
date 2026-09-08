@@ -1,12 +1,16 @@
 #include "syscall.h"
 #include <obsidia/app.h>
+#include <obsidia/service.h>
+#include <obsidia/app_catalog.h>
+#include <obsidia/settings.h>
 static int wait_for(const char*path){int64_t pid=obs_app_launch(path),status=0;if(pid<0)return-999;return sys_wait((uint64_t)pid,&status)<0?-998:(int)status;}
+static int wait_service(const char*name){int64_t handle=os_service_connect_wait(name,200);if(handle<0)return-1;os_handle_close((uint64_t)handle);return 0;}
 int obsidia_main(void){
     static const char start[]="TEST: regression boot started\n";sys_fd_write(1,start,sizeof(start)-1);
     if(obs_exec_detect("malformed.exe")!=OBS_EXEC_UNKNOWN||obs_exec_detect("win-smoke.exe")!=OBS_EXEC_PE32_PLUS||obs_exec_detect("win32.exe")!=OBS_EXEC_PE32||
        wait_for("native-smoke" OBS_NATIVE_EXEC_EXTENSION)!=23||wait_for("win-smoke.exe")!=0||obs_app_launch("imports.exe")>=0)__asm__ volatile("ud2");
     if(obs_app_launch("win32.exe")>=0)__asm__ volatile("ud2");
-    const char*tests[]={"hello.elf","invalid.elf","vm.elf","fpu.elf","surface.elf","fs.elf","presentation.elf","app-manifest.elf","process-info.elf","shell-model.elf","system-control.elf"};
+    const char*tests[]={"hello.elf","invalid.elf","vm.elf","fpu.elf","surface.elf","fs.elf","presentation.elf","app-manifest.elf","process-info.elf","shell-model.elf","system-control.elf","time.elf"};
     for(uint32_t i=0;i<sizeof(tests)/sizeof(tests[0]);i++)if(wait_for(tests[i])<0)__asm__ volatile("ud2");
     if(wait_for("fault.elf")>=0)__asm__ volatile("ud2");
     int64_t endpoint=os_ipc_create();if(endpoint<0||os_handle_set_inheritable((uint64_t)endpoint,1)<0)__asm__ volatile("ud2");
@@ -33,20 +37,20 @@ int obsidia_main(void){
     if(obs_app_launch("serviced" OBS_NATIVE_EXEC_EXTENSION)<0)__asm__ volatile("ud2");
     sys_sleep(2);
     if(obs_app_launch("appd" OBS_NATIVE_EXEC_EXTENSION)<0)__asm__ volatile("ud2");
-    sys_sleep(2);
+    if(wait_service(OBS_APP_CATALOG_SERVICE_NAME)<0)__asm__ volatile("ud2");
     if(wait_for("app-catalog.elf")!=0)__asm__ volatile("ud2");
     int64_t settings_authority=os_ipc_create();
     if(settings_authority<0||os_handle_set_inheritable((uint64_t)settings_authority,1)<0)__asm__ volatile("ud2");
     if(obs_app_launch("settingsd" OBS_NATIVE_EXEC_EXTENSION)<0)__asm__ volatile("ud2");
     os_handle_set_inheritable((uint64_t)settings_authority,0);
-    sys_sleep(2);
+    if(wait_service(OBS_SETTINGS_SERVICE_NAME)<0)__asm__ volatile("ud2");
     os_handle_set_inheritable((uint64_t)settings_authority,1);
     if(wait_for("settings" OBS_NATIVE_EXEC_EXTENSION)!=0)__asm__ volatile("ud2");
     os_handle_set_inheritable((uint64_t)settings_authority,0);
     os_handle_close((uint64_t)settings_authority);
     int64_t output=os_handle_find(OS_OBJECT_DISPLAY_OUTPUT);if(output<0||os_handle_set_inheritable((uint64_t)output,1)<0)__asm__ volatile("ud2");
     if(obs_app_launch("displayd" OBS_NATIVE_EXEC_EXTENSION)<0)__asm__ volatile("ud2");
-    os_handle_set_inheritable((uint64_t)output,0);sys_sleep(2);
+    os_handle_set_inheritable((uint64_t)output,0);if(wait_service("display")<0)__asm__ volatile("ud2");
     if(wait_for("window-negative" OBS_NATIVE_EXEC_EXTENSION)!=0||wait_for("window-lifecycle" OBS_NATIVE_EXEC_EXTENSION)!=0)__asm__ volatile("ud2");
     static const char passed[]="TEST: all regression checks passed\n";sys_fd_write(1,passed,sizeof(passed)-1);
     if(os_system_control_raw((uint64_t)os_handle_find(OS_OBJECT_SYSTEM_CONTROL),99)==0)__asm__ volatile("ud2");

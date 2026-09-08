@@ -8,6 +8,9 @@ void idt_load(void);
 typedef struct registers registers_t;
 typedef void (*isr_handler_t)(registers_t* regs);
 void idt_set_handler(uint8_t vector, isr_handler_t handler);
+int idt_add_handler(uint8_t vector,isr_handler_t handler);
+int interrupt_allocate_vector(isr_handler_t handler,uint8_t*vector);
+void interrupt_release_vector(uint8_t vector,isr_handler_t handler);
 
 // Enable / disable IRQs (wrapper around sti/cli)
 void enable_interrupts(void);
@@ -16,6 +19,7 @@ void disable_interrupts(void);
 // Send EOI to PIC(s) for an IRQ (0-15)
 void pic_send_eoi(uint8_t irq);
 int interrupt_unmask_irq(uint8_t irq);
+int interrupt_unmask_pci_irq(uint8_t irq);
 
 // Set a user-callable interrupt gate (DPL=3) e.g. for syscalls
 void idt_set_user_interrupt_gate(uint8_t vector, uint64_t handler);

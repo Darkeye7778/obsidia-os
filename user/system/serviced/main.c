@@ -24,8 +24,9 @@ int obsidia_main(void){
         request.name[sizeof(request.name)-1]=0;
         if(request.operation==OBS_SERVICE_REGISTER){
             int slot=find(request.name)>=0?-1:empty();
-            if(slot>=0&&request.published_rights&&(request.published_rights&~(OS_RIGHT_READ|OS_RIGHT_WRITE|OS_RIGHT_DUP))==0){uint32_t i=0;for(;i<sizeof(services[slot].name)-1&&request.name[i];i++)services[slot].name[i]=request.name[i];services[slot].name[i]=0;services[slot].endpoint=attached;services[slot].published_rights=request.published_rights;services[slot].owner_pid=info.sender_pid;}
-            else os_handle_close((uint64_t)attached);
+            uint8_t response=1;
+            if(slot>=0&&request.published_rights&&(request.published_rights&~(OS_RIGHT_READ|OS_RIGHT_WRITE|OS_RIGHT_DUP))==0){uint32_t i=0;for(;i<sizeof(services[slot].name)-1&&request.name[i];i++)services[slot].name[i]=request.name[i];services[slot].name[i]=0;services[slot].endpoint=attached;services[slot].published_rights=request.published_rights;services[slot].owner_pid=info.sender_pid;response=0;if(os_ipc_send((uint64_t)attached,&response,1)!=1)discard(slot);}
+            else{os_ipc_send((uint64_t)attached,&response,1);os_handle_close((uint64_t)attached);}
         }else if(request.operation==OBS_SERVICE_CONNECT){
             int slot=find(request.name);uint8_t response=slot>=0?0:1;
             if(slot>=0)os_ipc_send_handle((uint64_t)attached,&response,1,(uint64_t)services[slot].endpoint,

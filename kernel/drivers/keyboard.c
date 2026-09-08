@@ -177,7 +177,7 @@ void keyboard_init(void) {
     keybuf_head = keybuf_tail = 0;
 
     // Register our C handler for IRQ1 (vector 33 after PIC remap)
-    idt_set_handler(33, keyboard_irq_handler);
+    idt_add_handler(33, keyboard_irq_handler);
 
     interrupt_unmask_irq(0);
     interrupt_unmask_irq(1);

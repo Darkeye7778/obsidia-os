@@ -4,6 +4,7 @@
 #include "paging.h"
 #include "dma.h"
 #include "idt.h"
+#include "apic.h"
 #include "timer.h"
 #include "memory/heap.h"
 #include <stdint.h>
@@ -43,10 +44,15 @@ extern void serial_write(const char*);
 static volatile uint32_t*controller_abar;
 static ahci_disk_t*controller_disks[AHCI_MAX_PORTS];
 static uint64_t controller_irq_count;
-static uint8_t controller_interrupts;
+static uint8_t controller_interrupts,controller_interrupt_kind;
 static uint32_t read_reg(ahci_disk_t*disk,uint32_t offset){return disk->registers[offset/4];}
 static void write_reg(ahci_disk_t*disk,uint32_t offset,uint32_t value){disk->registers[offset/4]=value;__asm__ volatile("mfence":::"memory");}
 static int wait_clear(ahci_disk_t*disk,uint32_t offset,uint32_t mask){for(uint32_t n=0;n<AHCI_TIMEOUT;n++)if(!(read_reg(disk,offset)&mask))return 0;return-1;}
+static void wait_for_interrupt(void){
+    uint64_t flags;__asm__ volatile("pushfq; pop %0":"=r"(flags));
+    if(flags&(1ULL<<9))__asm__ volatile("hlt");
+    else __asm__ volatile("sti; hlt; cli":::"memory");
+}
 
 static void release_disk(ahci_disk_t*disk){if(!disk)return;dma_release(&disk->bounce);dma_release(&disk->command_table);dma_release(&disk->received_fis);dma_release(&disk->command_list);kfree(disk);}
 static int allocate_disk(ahci_disk_t*disk){
@@ -68,7 +74,7 @@ static int issue_once(ahci_disk_t*disk,uint8_t command,uint64_t lba,uint16_t sec
     if(bytes){table->prdt[0].base=(uint32_t)disk->bounce.physical_address;table->prdt[0].base_upper=(uint32_t)(disk->bounce.physical_address>>32);table->prdt[0].byte_count=(bytes-1)|(1U<<31);}
     uint8_t*fis=table->cfis;fis[0]=0x27;fis[1]=0x80;fis[2]=command;fis[4]=(uint8_t)lba;fis[5]=(uint8_t)(lba>>8);fis[6]=(uint8_t)(lba>>16);fis[7]=0x40;fis[8]=(uint8_t)(lba>>24);fis[9]=(uint8_t)(lba>>32);fis[10]=(uint8_t)(lba>>40);fis[12]=(uint8_t)sectors;fis[13]=(uint8_t)(sectors>>8);
     if(wait_clear(disk,PORT_TFD,0x88)||read_reg(disk,PORT_CI)&1)return-1;disk->last_interrupt=0;write_reg(disk,PORT_IS,0xffffffffU);__asm__ volatile("mfence":::"memory");write_reg(disk,PORT_CI,1);
-    uint64_t deadline=timer_get_ticks()+200;for(uint32_t n=0;n<AHCI_TIMEOUT;n++){uint32_t interrupt=disk->last_interrupt|read_reg(disk,PORT_IS);if((interrupt&(1U<<30))||(read_reg(disk,PORT_TFD)&1))return-1;if(!(read_reg(disk,PORT_CI)&1)){if(!write&&bytes)for(uint32_t i=0;i<bytes;i++)((uint8_t*)buffer)[i]=((uint8_t*)disk->bounce.virtual_address)[i];return 0;}if(controller_interrupts){if(timer_get_ticks()>=deadline)break;__asm__ volatile("hlt");}else __asm__ volatile("pause");}
+    uint64_t deadline=timer_get_ticks()+200;for(uint32_t n=0;n<AHCI_TIMEOUT;n++){uint32_t interrupt=disk->last_interrupt|read_reg(disk,PORT_IS);if((interrupt&(1U<<30))||(read_reg(disk,PORT_TFD)&1))return-1;if(!(read_reg(disk,PORT_CI)&1)){if(!write&&bytes)for(uint32_t i=0;i<bytes;i++)((uint8_t*)buffer)[i]=((uint8_t*)disk->bounce.virtual_address)[i];return 0;}if(controller_interrupts){if(timer_get_ticks()>=deadline)break;wait_for_interrupt();}else __asm__ volatile("pause");}
     if(disk->device)disk->device->timeouts++;return-1;
 }
 static int recover_port(ahci_disk_t*disk){
@@ -85,8 +91,9 @@ static void ahci_interrupt_handler(registers_t*registers){
     (void)registers;if(!controller_abar)return;uint32_t pending=controller_abar[2];if(!pending)return;controller_irq_count++;
     for(uint8_t port=0;port<AHCI_MAX_PORTS;port++)if(pending&(1U<<port)){
         volatile uint32_t*port_registers=controller_abar+(AHCI_PORT_BASE+port*AHCI_PORT_STRIDE)/4;uint32_t status=port_registers[PORT_IS/4];ahci_disk_t*disk=controller_disks[port];
-        if(disk){disk->last_interrupt|=status;disk->interrupt_count++;}port_registers[PORT_IS/4]=status;
+        if(disk){disk->last_interrupt|=status;disk->interrupt_count++;}port_registers[PORT_IS/4]=status;(void)port_registers[PORT_IS/4];
     }
+    controller_abar[2]=pending;
 }
 
 static int register_port(volatile uint32_t*abar,uint8_t port,uint32_t ordinal){
@@ -101,9 +108,14 @@ static int register_port(volatile uint32_t*abar,uint8_t port,uint32_t ordinal){
 
 int ahci_detect_and_register(void){
     pci_device_t controller;if(pci_find_class(0x01,0x06,0x01,&controller))return 0;uint64_t physical=0;if(pci_bar_memory_address(&controller,5,&physical)||pci_enable_memory_bus_master(&controller))return-1;
-    volatile uint32_t*abar=paging_map_mmio(physical,0x2000);if(!abar)return-1;controller_abar=abar;controller_irq_count=0;controller_interrupts=0;for(uint8_t i=0;i<AHCI_MAX_PORTS;i++)controller_disks[i]=0;uint32_t cap=abar[0],cap2=abar[9];if(cap2&1){abar[10]|=2;for(uint32_t n=0;n<AHCI_TIMEOUT&&(abar[10]&1);n++)__asm__ volatile("pause");if(abar[10]&1)return-1;}
-    abar[1]|=1U<<31;uint8_t irq_line=0,interrupt_pin=0;if(!pci_legacy_interrupt(&controller,&irq_line,&interrupt_pin)){idt_set_handler((uint8_t)(32+irq_line),ahci_interrupt_handler);if(!interrupt_unmask_irq(irq_line)){controller_interrupts=1;abar[1]|=1U<<1;}}
+    volatile uint32_t*abar=paging_map_mmio(physical,0x2000);if(!abar)return-1;controller_abar=abar;controller_irq_count=0;controller_interrupts=controller_interrupt_kind=0;for(uint8_t i=0;i<AHCI_MAX_PORTS;i++)controller_disks[i]=0;uint32_t cap=abar[0],cap2=abar[9];if(cap2&1){abar[10]|=2;for(uint32_t n=0;n<AHCI_TIMEOUT&&(abar[10]&1);n++)__asm__ volatile("pause");if(abar[10]&1)return-1;}
+    abar[1]|=1U<<31;uint8_t msi_vector=0;if(apic_is_active()&&!interrupt_allocate_vector(ahci_interrupt_handler,&msi_vector)){
+        if(!pci_enable_msi(&controller,msi_vector,apic_boot_processor_id())){controller_interrupts=1;controller_interrupt_kind=2;}
+        else interrupt_release_vector(msi_vector,ahci_interrupt_handler);
+    }
+    uint8_t irq_line=0,interrupt_pin=0;if(!controller_interrupts&&!pci_legacy_interrupt(&controller,&irq_line,&interrupt_pin)&&!idt_add_handler((uint8_t)(32+irq_line),ahci_interrupt_handler)){if(!interrupt_unmask_pci_irq(irq_line)){controller_interrupts=1;controller_interrupt_kind=1;}}
+    if(controller_interrupts)abar[1]|=1U<<1;
     uint32_t implemented=abar[3],registered=0,ports=(cap&31)+1;if(ports>AHCI_MAX_PORTS)ports=AHCI_MAX_PORTS;
     for(uint32_t port=0;port<ports&&registered<AHCI_MAX_DEVICES;port++)if(implemented&(1U<<port)){volatile uint32_t*registers=abar+(AHCI_PORT_BASE+port*AHCI_PORT_STRIDE)/4;uint32_t status=registers[PORT_SSTS/4];if((status&0xf)==3&&((status>>8)&0xf)==1&&registers[PORT_SIG/4]==AHCI_PORT_SATA_SIGNATURE){if(register_port(abar,(uint8_t)port,registered)==0)registered++;}}
-    if(registered){serial_write("AHCI: SATA DMA block device registered\n");serial_write(controller_interrupts&&controller_irq_count?"AHCI: interrupt completion active\n":"AHCI: bounded polling completion active\n");}else serial_write("AHCI: controller present; no usable SATA disk\n");return(int)registered;
+    if(registered){serial_write("AHCI: SATA DMA block device registered\n");if(controller_interrupts&&controller_irq_count)serial_write(controller_interrupt_kind==2?"AHCI: MSI completion active\n":"AHCI: PCI INTx completion active\n");else serial_write("AHCI: bounded polling completion active\n");}else serial_write("AHCI: controller present; no usable SATA disk\n");return(int)registered;
 }

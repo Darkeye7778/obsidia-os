@@ -1,5 +1,8 @@
 #include "syscall.h"
 #include <obsidia/app.h>
+#include <obsidia/service.h>
+#include <obsidia/app_catalog.h>
+#include <obsidia/settings.h>
 
 static void write(const char* text) { uint64_t n=0;while(text[n])n++;sys_fd_write(1,text,n); }
 static int launch_and_wait(const char* path) {
@@ -7,6 +10,7 @@ static int launch_and_wait(const char* path) {
     if(pid<0)return -1;
     return sys_wait((uint64_t)pid,&status)<0?-1:(int)status;
 }
+static int wait_service(const char*name){int64_t handle=os_service_connect_wait(name,200);if(handle<0)return-1;os_handle_close((uint64_t)handle);return 0;}
 
 int obsidia_main(void) {
     write("init: Obsidia production boot\n");
@@ -31,14 +35,14 @@ int obsidia_main(void) {
     if(obs_app_launch("serviced" OBS_NATIVE_EXEC_EXTENSION)<0)return 6;
     sys_sleep(2);
     if(obs_app_launch("appd" OBS_NATIVE_EXEC_EXTENSION)<0)return 6;
-    sys_sleep(2);
+    if(wait_service(OBS_APP_CATALOG_SERVICE_NAME)<0)return 6;
     int64_t settings_authority=os_ipc_create();if(settings_authority<0||os_handle_set_inheritable((uint64_t)settings_authority,1)<0)return 6;
     if(obs_app_launch("settingsd" OBS_NATIVE_EXEC_EXTENSION)<0)return 6;
-    os_handle_set_inheritable((uint64_t)settings_authority,0);sys_sleep(2);
+    os_handle_set_inheritable((uint64_t)settings_authority,0);if(wait_service(OBS_SETTINGS_SERVICE_NAME)<0)return 6;
     int64_t output=os_handle_find(OS_OBJECT_DISPLAY_OUTPUT);if(output<0||os_handle_set_inheritable((uint64_t)output,1)<0)return 6;
     if(obs_app_launch("displayd" OBS_NATIVE_EXEC_EXTENSION)<0)return 6;
     os_handle_set_inheritable((uint64_t)output,0);
-    sys_sleep(2);
+    if(wait_service("display")<0)return 6;
     int64_t input=os_handle_find(OS_OBJECT_INPUT);if(input<0||os_handle_set_inheritable((uint64_t)input,1)<0)return 8;
     if(obs_app_launch("inputd" OBS_NATIVE_EXEC_EXTENSION)<0)return 8;
     os_handle_set_inheritable((uint64_t)input,0);

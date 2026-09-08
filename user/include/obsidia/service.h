@@ -52,3 +52,7 @@ int os_service_register_restricted(const char* name,uint64_t endpoint,uint32_t c
 int64_t os_service_connect(
     const char* name
 );
+
+/* Wait up to timeout_ticks scheduler ticks for a service registration.  This
+   is intended for explicit boot/dependency barriers, not render loops. */
+int64_t os_service_connect_wait(const char*name,uint32_t timeout_ticks);

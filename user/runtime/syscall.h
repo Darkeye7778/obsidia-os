@@ -47,6 +47,9 @@
 #define SYS_STAT                 42
 #define SYS_READDIR              43
 #define SYS_SYSTEM_CONTROL       44
+#define SYS_TIME_MONOTONIC       45
+#define SYS_TIME_RESOLUTION      46
+#define SYS_TIME_WALL_UTC        47
 
 #define OS_OBJECT_IPC 1
 #define OS_OBJECT_INPUT 4
@@ -100,6 +103,13 @@ static inline void sys_write(const char* buf, uint64_t len) {
 static inline uint64_t sys_getticks(void) {
     return syscall(SYS_GETTICKS, 0, 0, 0);
 }
+static inline uint64_t sys_time_monotonic_ns(void){
+    return syscall(SYS_TIME_MONOTONIC,0,0,0);
+}
+static inline uint64_t sys_time_resolution_ns(void){
+    return syscall(SYS_TIME_RESOLUTION,0,0,0);
+}
+static inline uint64_t sys_time_wall_utc(void){return syscall(SYS_TIME_WALL_UTC,0,0,0);}
 
 static inline void sys_yield(void) {
     syscall(SYS_YIELD, 0, 0, 0);

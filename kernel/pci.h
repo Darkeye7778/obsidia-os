@@ -16,6 +16,8 @@ int pci_find_class(uint8_t class_code,uint8_t subclass,uint8_t programming_inter
 int pci_enable_memory_bus_master(const pci_device_t*device);
 int pci_bar_memory_address(const pci_device_t*device,uint8_t bar,uint64_t*address);
 int pci_legacy_interrupt(const pci_device_t*device,uint8_t*irq_line,uint8_t*interrupt_pin);
+int pci_find_capability(const pci_device_t*device,uint8_t capability_id,uint8_t*offset);
+int pci_enable_msi(const pci_device_t*device,uint8_t vector,uint8_t destination_apic_id);
 
 // Simple device scan (prints found devices for now)
 void pci_scan(void);

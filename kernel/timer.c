@@ -1,6 +1,7 @@
 #include "timer.h"
 #include "idt.h"
 #include "console/console.h"
+#include "hpet.h"
 
 #define PIT_CHANNEL0 0x40
 #define PIT_COMMAND  0x43
@@ -11,6 +12,9 @@ static volatile uint64_t timer_ticks = 0;
 static void timer_irq_handler(registers_t* regs) {
     (void)regs;
     timer_ticks++;
+    /* Frequent observation makes the extension of a 32-bit HPET counter safe
+       across wrap even when no userspace clock client is active. */
+    if(hpet_is_available())(void)hpet_monotonic_ns();
 }
 
 void timer_init(void) {
@@ -22,7 +26,7 @@ void timer_init(void) {
     outb(PIT_CHANNEL0, (uint8_t)(divisor & 0xFF));
     outb(PIT_CHANNEL0, (uint8_t)((divisor >> 8) & 0xFF));
 
-    idt_set_handler(32, timer_irq_handler);
+    idt_add_handler(32, timer_irq_handler);
 
     // Already unmasked in keyboard_init (bit 0), but ensure
     interrupt_unmask_irq(0);
@@ -32,6 +36,15 @@ void timer_init(void) {
 
 uint64_t timer_get_ticks(void) {
     return timer_ticks;
+}
+
+uint64_t timer_monotonic_ns(void){
+    if(hpet_is_available())return hpet_monotonic_ns();
+    return timer_ticks*10000000ULL;
+}
+uint64_t timer_monotonic_resolution_ns(void){
+    uint64_t resolution=hpet_resolution_ns();
+    return resolution?resolution:10000000ULL;
 }
 
 void timer_sleep(uint64_t ticks) {

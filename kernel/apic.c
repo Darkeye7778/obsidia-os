@@ -73,4 +73,13 @@ int apic_route_legacy_irq(uint8_t irq,uint8_t vector){
     uint32_t actual=ioapic_read(io,reg);return(actual&0x100ffU)==vector?0:-1;
 }
 
+int apic_route_pci_irq(uint8_t irq,uint8_t vector){
+    if(!active||irq>=16||vector<32)return-1;ioapic_runtime_t*io=ioapic_for_gsi(irq);if(!io)return-1;uint32_t entry=irq-io->gsi_base;uint8_t reg=(uint8_t)(0x10+entry*2);
+    /* Conventional PCI INTx is active-low and level-triggered. The PCI config
+       interrupt-line value is the platform GSI on the supported PC path. */
+    ioapic_write(io,(uint8_t)(reg+1),(uint32_t)bsp_apic_id<<24);ioapic_write(io,reg,(uint32_t)vector|(1U<<13)|(1U<<15));
+    uint32_t actual=ioapic_read(io,reg);return(actual&0x1a0ffU)==((uint32_t)vector|(1U<<13)|(1U<<15))?0:-1;
+}
+
 void apic_send_eoi(void){if(lapic)lapic_write(LAPIC_EOI,0);}
+uint8_t apic_boot_processor_id(void){return bsp_apic_id;}

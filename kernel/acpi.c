@@ -63,6 +63,7 @@ static void parse_fadt(const uint8_t*fadt){
     if(!pm1a&&length>=184&&fadt[172]==1)pm1a=(uint32_t)read64(fadt+176);
     if(!pm1b&&length>=196&&fadt[184]==1)pm1b=(uint32_t)read64(fadt+188);
     if(pm1a<=0xffff)platform.pm1a_control=(uint16_t)pm1a;if(pm1b<=0xffff)platform.pm1b_control=(uint16_t)pm1b;
+    if(length>=109)platform.rtc_century_register=fadt[108];
     if(length>=129){reset_space=fadt[116];reset_width=fadt[117];reset_address=read64(fadt+120);reset_value=fadt[128];if(reset_space==1&&reset_address<=0xffff)platform.has_reset=1;}
     if(dsdt)parse_s5(dsdt);
 }
@@ -87,12 +88,22 @@ static void parse_madt(const uint8_t*madt){
     if(platform.local_apic_address&&platform.ioapic_count)platform.has_madt=1;
 }
 
+static void parse_hpet(const uint8_t*hpet){
+    uint32_t length=read32(hpet+4);
+    /* The timer block address is an ACPI Generic Address Structure.  V1 only
+       accepts memory-mapped HPET blocks; I/O-space GAS values are not HPET. */
+    if(length<56||hpet[40]!=0||!read64(hpet+44))return;
+    platform.hpet_address=read64(hpet+44);
+    platform.hpet_minimum_tick=read16(hpet+53);
+    platform.has_hpet=1;
+}
+
 int acpi_init(void*rsdp_address,uint64_t hhdm_offset,struct limine_memmap_response*memory_map){
     for(uint32_t i=0;i<sizeof(platform);i++)((uint8_t*)&platform)[i]=0;map=memory_map;direct_offset=hhdm_offset;
     uint8_t*rsdp=rsdp_address;if(!rsdp||!bytes_equal(rsdp,"RSD PTR ",8)||!checksum(rsdp,20))return-1;platform.revision=rsdp[15];
     uint64_t root=read32(rsdp+16);int xsdt=0;if(platform.revision>=2){uint32_t length=read32(rsdp+20);if(length<36||length>4096||!checksum(rsdp,length))return-1;if(read64(rsdp+24)){root=read64(rsdp+24);xsdt=1;}}
     uint8_t*table=valid_table(root);if(!table||!bytes_equal(table,xsdt?"XSDT":"RSDT",4))return-1;uint32_t length=read32(table+4),entry_size=xsdt?8:4,count=(length-36)/entry_size;
-    if(count>256)return-1;for(uint32_t i=0;i<count;i++){uint64_t address=xsdt?read64(table+36+i*8):read32(table+36+i*4);uint8_t*child=valid_table(address);if(!child)continue;if(bytes_equal(child,"FACP",4))parse_fadt(child);else if(bytes_equal(child,"APIC",4))parse_madt(child);}
+    if(count>256)return-1;for(uint32_t i=0;i<count;i++){uint64_t address=xsdt?read64(table+36+i*8):read32(table+36+i*4);uint8_t*child=valid_table(address);if(!child)continue;if(bytes_equal(child,"FACP",4))parse_fadt(child);else if(bytes_equal(child,"APIC",4))parse_madt(child);else if(bytes_equal(child,"HPET",4))parse_hpet(child);}
     if(!platform.has_fadt)return-1;serial_write(platform.has_s5?"ACPI: tables and S5 power state ready\n":"ACPI: tables ready; S5 unavailable\n");return 0;
 }
 

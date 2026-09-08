@@ -185,6 +185,7 @@ $(eval $(call USER_ELF,tests/app-catalog,user/tests/app-catalog.c))
 $(eval $(call USER_ELF,tests/process-info,user/tests/process-info.c))
 $(eval $(call USER_ELF,tests/shell-model,user/tests/shell-model.c))
 $(eval $(call USER_ELF,tests/system-control,user/tests/system-control.c))
+$(eval $(call USER_ELF,tests/time,user/tests/time.c))
 
 $(USER_BUILD)/fixtures/win-smoke.exe: tools/mkpe_fixture.py
 >@mkdir -p $(dir $@)
@@ -251,6 +252,7 @@ USER_PROGRAMS := \
     $(USER_BUILD)/tests/process-info.elf \
     $(USER_BUILD)/tests/shell-model.elf \
     $(USER_BUILD)/tests/system-control.elf \
+    $(USER_BUILD)/tests/time.elf \
     $(USER_BUILD)/fixtures/win-smoke.exe \
     $(USER_BUILD)/fixtures/imports.exe \
     $(USER_BUILD)/fixtures/malformed.exe \
@@ -313,6 +315,7 @@ rootfs: $(USER_PROGRAMS)
 >cp $(USER_BUILD)/tests/process-info.elf $(ROOTFS_BUILD)/process-info.elf
 >cp $(USER_BUILD)/tests/shell-model.elf $(ROOTFS_BUILD)/shell-model.elf
 >cp $(USER_BUILD)/tests/system-control.elf $(ROOTFS_BUILD)/system-control.elf
+>cp $(USER_BUILD)/tests/time.elf $(ROOTFS_BUILD)/time.elf
 >cp $(USER_BUILD)/fixtures/win-smoke.exe $(ROOTFS_BUILD)/win-smoke.exe
 >cp $(USER_BUILD)/fixtures/imports.exe  $(ROOTFS_BUILD)/imports.exe
 >cp $(USER_BUILD)/fixtures/malformed.exe $(ROOTFS_BUILD)/malformed.exe

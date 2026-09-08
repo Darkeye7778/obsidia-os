@@ -22,14 +22,18 @@ typedef struct {
     uint8_t has_fadt;
     uint8_t has_s5;
     uint8_t has_reset;
+    uint8_t rtc_century_register;
     uint16_t pm1a_control;
     uint16_t pm1b_control;
     uint8_t sleep_type_a;
     uint8_t sleep_type_b;
     uint8_t has_madt;
+    uint8_t has_hpet;
     uint8_t ioapic_count;
     uint8_t interrupt_override_count;
     uint64_t local_apic_address;
+    uint64_t hpet_address;
+    uint32_t hpet_minimum_tick;
     acpi_ioapic_t ioapics[ACPI_MAX_IOAPICS];
     acpi_interrupt_override_t interrupt_overrides[ACPI_MAX_INTERRUPT_OVERRIDES];
 } acpi_platform_info_t;

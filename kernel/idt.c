@@ -29,7 +29,10 @@ typedef struct {
 
 static idt_entry_t idt[256];
 static idtr_t idtr;
-static isr_handler_t handlers[256] = {0};
+#define MAX_SHARED_VECTOR_HANDLERS 4
+static isr_handler_t handlers[256][MAX_SHARED_VECTOR_HANDLERS];
+static uint8_t handler_counts[256];
+static uint8_t allocated_hardware_vector[256];
 
 // CPU exception messages for common ones
 static const char* exception_messages[32] = {
@@ -93,6 +96,14 @@ int interrupt_unmask_irq(uint8_t irq){
     return 0;
 }
 
+int interrupt_unmask_pci_irq(uint8_t irq){
+    if(irq>=16)return-1;
+    if(apic_is_active())return apic_route_pci_irq(irq,(uint8_t)(32+irq));
+    if(irq>=8){outb(0xA1,inb(0xA1)&(uint8_t)~(1U<<(irq-8)));outb(0x21,inb(0x21)&(uint8_t)~(1U<<2));}
+    else outb(0x21,inb(0x21)&(uint8_t)~(1U<<irq));
+    return 0;
+}
+
 // Remap PIC to vectors 32+ so exceptions (0-31) are free
 static void pic_remap(void) {
     uint8_t a1 = inb(0x21);
@@ -112,7 +123,24 @@ static void pic_remap(void) {
 }
 
 void idt_set_handler(uint8_t vector, isr_handler_t handler) {
-    handlers[vector] = handler;
+    for(uint8_t i=0;i<MAX_SHARED_VECTOR_HANDLERS;i++)handlers[vector][i]=0;
+    handler_counts[vector]=handler?1:0;handlers[vector][0]=handler;
+}
+
+int idt_add_handler(uint8_t vector,isr_handler_t handler){
+    if(!handler)return-1;for(uint8_t i=0;i<handler_counts[vector];i++)if(handlers[vector][i]==handler)return 0;
+    if(handler_counts[vector]>=MAX_SHARED_VECTOR_HANDLERS)return-1;handlers[vector][handler_counts[vector]++]=handler;return 0;
+}
+
+int interrupt_allocate_vector(isr_handler_t handler,uint8_t*vector){
+    if(!handler||!vector)return-1;for(uint16_t candidate=48;candidate<128;candidate++)if(!allocated_hardware_vector[candidate]&&!handler_counts[candidate]){
+        if(idt_add_handler((uint8_t)candidate,handler))return-1;allocated_hardware_vector[candidate]=1;*vector=(uint8_t)candidate;return 0;
+    }return-1;
+}
+
+void interrupt_release_vector(uint8_t vector,isr_handler_t handler){
+    if(vector<48||vector>=128||!allocated_hardware_vector[vector]||handler_counts[vector]!=1||handlers[vector][0]!=handler)return;
+    handlers[vector][0]=0;handler_counts[vector]=0;allocated_hardware_vector[vector]=0;
 }
 
 static void idt_set_gate(uint8_t vector, uint64_t handler, uint8_t type_attr, uint8_t ist) {
@@ -196,20 +224,19 @@ registers_t* isr_handler(registers_t* regs) {
     } else if (vec >= 32 && vec < 48) {
         // IRQ
         uint8_t irq = vec - 32;
-        if (handlers[vec]) {
-            handlers[vec](regs);
-        }
+        for(uint8_t i=0;i<handler_counts[vec];i++)handlers[vec][i](regs);
         if(apic_is_active())apic_send_eoi();else pic_send_eoi(irq);
         if (irq == 0 && (((regs->cs & 3) == 3) ||
                          (current_task && current_task->state != TASK_RUNNING)))
             return task_schedule_from_interrupt(regs);
     } else {
         // Other (including 0x80 before syscall ready)
-        if (handlers[vec]) {
-            handlers[vec](regs);
+        if (handler_counts[vec]) {
+            for(uint8_t i=0;i<handler_counts[vec];i++)handlers[vec][i](regs);
         } else {
             // ignore or log
         }
+        if(allocated_hardware_vector[vec]&&apic_is_active())apic_send_eoi();
     }
     if (vec == 128 && task_reschedule_requested()) {
         return task_schedule_from_interrupt(regs);

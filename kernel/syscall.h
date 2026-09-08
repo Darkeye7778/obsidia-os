@@ -49,6 +49,9 @@ void syscall_init(void);
 #define SYS_STAT                 42
 #define SYS_READDIR              43
 #define SYS_SYSTEM_CONTROL       44
+#define SYS_TIME_MONOTONIC       45
+#define SYS_TIME_RESOLUTION      46
+#define SYS_TIME_WALL_UTC        47
 
 // Simple fb info struct for user
 typedef struct {

@@ -58,6 +58,24 @@ int pci_legacy_interrupt(const pci_device_t*device,uint8_t*irq_line,uint8_t*inte
     if(!device||!irq_line||!interrupt_pin)return-1;uint32_t value=pci_config_read32(device->bus,device->slot,device->function,0x3c);uint8_t line=(uint8_t)value,pin=(uint8_t)(value>>8);
     if(!pin||pin>4||line>=16)return-1;*irq_line=line;*interrupt_pin=pin;return 0;
 }
+int pci_find_capability(const pci_device_t*device,uint8_t capability_id,uint8_t*offset){
+    if(!device||!offset)return-1;uint32_t command_status=pci_config_read32(device->bus,device->slot,device->function,4);if(!(command_status&(1U<<20)))return-1;
+    uint8_t next=(uint8_t)pci_config_read32(device->bus,device->slot,device->function,0x34)&0xfc;uint64_t visited=0;
+    for(uint8_t count=0;count<48&&next>=0x40&&next<=0xfc;count++){
+        uint8_t bit=(uint8_t)((next-0x40)/4);if(bit<64&&(visited&(1ULL<<bit)))return-1;if(bit<64)visited|=1ULL<<bit;
+        uint32_t header=pci_config_read32(device->bus,device->slot,device->function,next);if((uint8_t)header==capability_id){*offset=next;return 0;}next=(uint8_t)(header>>8)&0xfc;
+    }return-1;
+}
+
+int pci_enable_msi(const pci_device_t*device,uint8_t vector,uint8_t destination_apic_id){
+    if(!device||vector<32)return-1;uint8_t offset;if(pci_find_capability(device,0x05,&offset))return-1;uint32_t header=pci_config_read32(device->bus,device->slot,device->function,offset);uint16_t control=(uint16_t)(header>>16);int address64=(control&(1U<<7))!=0;
+    pci_config_write32(device->bus,device->slot,device->function,(uint8_t)(offset+4),0xfee00000U|((uint32_t)destination_apic_id<<12));
+    uint8_t data_offset=(uint8_t)(offset+(address64?12:8));if(address64)pci_config_write32(device->bus,device->slot,device->function,(uint8_t)(offset+8),0);
+    uint32_t data=pci_config_read32(device->bus,device->slot,device->function,data_offset);data=(data&0xffff0000U)|vector;pci_config_write32(device->bus,device->slot,device->function,data_offset,data);
+    control=(uint16_t)((control&~(7U<<4))|1U);pci_config_write32(device->bus,device->slot,device->function,offset,(header&0xffffU)|((uint32_t)control<<16));
+    if(!(((uint16_t)(pci_config_read32(device->bus,device->slot,device->function,offset)>>16))&1))return-1;
+    uint32_t command=pci_config_read32(device->bus,device->slot,device->function,4);pci_config_write32(device->bus,device->slot,device->function,4,command|(1U<<10));return 0;
+}
 
 void pci_get_class(uint8_t bus, uint8_t slot, uint8_t func, uint8_t* class_code, uint8_t* subclass) {
     uint32_t reg = pci_config_read32(bus, slot, func, 0x08);

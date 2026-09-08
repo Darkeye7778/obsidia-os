@@ -21,6 +21,8 @@
 #include "resource.h"
 #include "acpi.h"
 #include "apic.h"
+#include "hpet.h"
+#include "rtc.h"
 
 __attribute__((used,section(".limine_requests")))
 static volatile struct limine_framebuffer_request framebuffer_request={
@@ -57,7 +59,7 @@ void kmain(void){
     paging_init();heap_init();vfs_init();
     if(module_request.response&&module_request.response->module_count){struct limine_file* initrd=module_request.response->modules[0];if(!vfs_mount_initrd_from((uint64_t)initrd->address,initrd->size))serial_write("VFS: initrd mount failed\n");}
     if(vfs_mount_ramfs("/tmp"))serial_write("VFS: ramfs mount failed\n");
-    idt_init();apic_init();keyboard_init();timer_init();syscall_init();tasking_init();enable_interrupts();
+    idt_init();apic_init();hpet_init();rtc_init();keyboard_init();timer_init();syscall_init();tasking_init();enable_interrupts();
     serial_write(resource_input_self_test()?"INPUT: coalescing/order self-test passed\n":"INPUT: coalescing/order self-test FAILED\n");
     platform_devices_init();
     block_device_t*state_disk=0,*raw_fallback=0;int saw_invalid_table=0,saw_partitioned_disk=0;
